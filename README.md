@@ -36,4 +36,4 @@ For small data and non-DL models, implemented in `sktime`:
 
 Feature extraction of time series can be *global* or *local* (sliding windows, or bins), transforming the time series into *primitive* values (mean, sd, etc.) or other *series* (FT, series of auto-regression coefs.).
 
-REF: Alexandra Amidon blog on `sktime`, see [here](https://towardsdatascience.com/a-brief-introduction-to-time-series-classification-algorithms-7b4284d31b97)
+REF: Alexandra Amidon blog on `sktime`, see [here](https://towardsdatascience.com/a-brief-introduction-to-time-series-classification-algorithms-7b4284d31b97). `sktime` can be found [here](https://github.com/alan-turing-institute/sktime)
