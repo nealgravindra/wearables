@@ -43,4 +43,9 @@ REF: Alexandra Amidon blog on `sktime`, see [here](https://towardsdatascience.co
 **Time-series regression**
 
 
+## Future directions
 
+### Development roadmap
+
+1. Incorporate more DL models for ECG based data, use fewer and fewer leads (starting from 12-lead ECG data)
+2. 
