@@ -37,3 +37,10 @@ For small data and non-DL models, implemented in `sktime`:
 Feature extraction of time series can be *global* or *local* (sliding windows, or bins), transforming the time series into *primitive* values (mean, sd, etc.) or other *series* (FT, series of auto-regression coefs.).
 
 REF: Alexandra Amidon blog on `sktime`, see [here](https://towardsdatascience.com/a-brief-introduction-to-time-series-classification-algorithms-7b4284d31b97). `sktime` can be found [here](https://github.com/alan-turing-institute/sktime)
+
+**NOTE**: the primary goal with wearables is to convert these models for use in *time-series regression* tasks, where a time-series is used to predict an output value in order to do substite testing in healthcare (e.g., AppleWatch using activity monitoring to estimate a patients six-minute walk test value). However, the above are useful in predicting some other interesting secondary-outcomes of interest in order to gauge how much *useful* information the time-series contains.
+
+**Time-series regression**
+
+
+
