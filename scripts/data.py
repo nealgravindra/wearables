@@ -57,7 +57,7 @@ def pad_align_transform_yID(data):
     
     '''
     X = np.empty((len(data.keys()), 24*60))
-    y = np.empty((len(data.keys()),))
+    y = pd.DataFrame(columns=['pid', 'GA'], index=list(range(len(data.keys()))))
     for i, (k, v) in enumerate(data.items()):
         ts, act = v[0], v[1]
         first_hour, first_min = ts[0].hour, ts[0].minute
@@ -69,5 +69,13 @@ def pad_align_transform_yID(data):
         # add log-pseudocount
         act = np.log(act + 1)
         X[i, :] = act
-        y[i] = k
+        y.loc[i, 'pid'], y.loc[i, 'GA'] = k.split('-')[0], int(k.split('-')[1])
     return X, y
+
+
+def get_train_test_yID():
+    data = load_pp_actigraphy()
+    data_train, data_test = split_pp_actigraphy(data)
+    X_train, y_train = pad_align_transform_yID(data_train)
+    X_test, y_test = pad_align_transform_yID(data_test)
+    return {'X_train':X_train, 'y_train':y_train, 'X_test':X_test, 'y_test':y_test}
