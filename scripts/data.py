@@ -1,5 +1,6 @@
 import pickle
 import numpy as np
+import pandas as pd
 
 def load_pp_actigraphy(fname='/home/ngr/gdrive/wearables/data/processed/MOD_1000_Woman_Activity_Data.pkl'):
     with open(fname, 'rb') as f:
@@ -46,3 +47,6 @@ def get_train_test():
     X_train, y_train = pad_align_transform(data_train)
     X_test, y_test = pad_align_transform(data_test)
     return {'X_train':X_train, 'y_train':y_train, 'X_test':X_test, 'y_test':y_test}
+
+def load_actigraphy_metadata(fname='/home/ngr/gdrive/wearables/data/MOD_Data_2021.csv'):
+    return pd.read_csv(fname, index_col=0)
