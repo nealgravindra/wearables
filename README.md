@@ -49,3 +49,8 @@ REF: Alexandra Amidon blog on `sktime`, see [here](https://towardsdatascience.co
 
 1. Incorporate more DL models for ECG based data, use fewer and fewer leads (starting from 12-lead ECG data)
 2. 
+
+## References
+
+1. On the broad utility of activity monitoring: https://doi.org/10.1126/science.abc5096
+2. 
