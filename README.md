@@ -54,5 +54,5 @@ REF: Alexandra Amidon blog on `sktime`, see [here](https://towardsdatascience.co
 
 ## References
 
-1. On the broad utility of activity monitoring: https://doi.org/10.1126/science.abc5096 and how to model with atypical architectures (i.e., GNNs): https://arxiv.org/pdf/2007.03113.pdf
+1. On the broad utility of activity monitoring: https://doi.org/10.1126/science.abc5096 and how to model with atypical architectures (i.e., GNNs): https://arxiv.org/pdf/2007.03113.pdf; using Google's Community Mobility Reports (https://www.google.com/covid19/mobility/) and *The Times* COVID-19 database (https://github.com/nytimes/covid-19-data)
 2. 
