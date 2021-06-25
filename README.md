@@ -44,6 +44,12 @@ REF: Alexandra Amidon blog on `sktime`, see [here](https://towardsdatascience.co
 
 **Time-series regression**
 
+## Data
+
+### Mobility or activity data
+- https://www.kaggle.com/shambhavimalik/activity-data
+- 
+
 
 ## Future directions
 
