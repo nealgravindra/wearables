@@ -1,5 +1,7 @@
 # wearables
 
+**Keywords**: mobility data, gestational age
+
 ## Background
 
 ### Biological
