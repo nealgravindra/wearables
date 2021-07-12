@@ -48,7 +48,7 @@ REF: Alexandra Amidon blog on `sktime`, see [here](https://towardsdatascience.co
 
 ### Mobility or activity data
 - https://www.kaggle.com/shambhavimalik/activity-data
-- 
+- https://wwwn.cdc.gov/nchs/nhanes/search/datapage.aspx?Component=Examination&CycleBeginYear=2003 (see dataset description in https://www.nature.com/articles/s41598-019-46850-0#Sec2 for more details)
 
 
 ## Future directions
