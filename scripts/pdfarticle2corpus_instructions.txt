@@ -1,1 +1,0 @@
-1. Instead of downloading the pdf, navigate to the html web-page full-text section. This makes things easier to copy over to a txt document (UTF-8 encoding).
