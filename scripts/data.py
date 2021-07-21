@@ -236,7 +236,7 @@ def viz_prop_n_days(data, day_cutoff=8, out_file=None):
 
     return nt
 
-def getdata_fromdict(data, data_out=None, pp_md_out=None, truncate_at_day=7, leading_pad=True, drop_first_day=True, verbose=True):
+def ppdata_fromdict2dict(data, out_file=None, truncate_at_day=7, leading_pad=True, drop_first_day=True, verbose=True):
     '''Create a new datapkl that has measurements for cohort.
 
     Arguments:
@@ -302,22 +302,75 @@ def getdata_fromdict(data, data_out=None, pp_md_out=None, truncate_at_day=7, lea
             if i % 500 == 0 and i != 0 :
                 print('  through m={}\t{:.0f}-s elapsed'.format(i+1, timer.stop()))
 
+    if verbose:
+        print('\n... finished filtering.')
+        print('\nDataset numbers:')
+        print('----------------')
+        npt, nobs = keys2_npt_nobs(keys2keep)
+        print('retained : {}-pts across {}-measurements'.format(npt, nobs))
+        npt, nobs = keys2_npt_nobs(k_lt1d)
+        print('<1d data : {}-pts across {}-measurements'.format(npt, nobs))
+        npt, nobs = keys2_npt_nobs(k_ltcutoff)
+        print('<{}d data : {}-pts across {}-measurements'.format(truncate_at_day, npt, nobs))
+        npt, nobs = keys2_npt_nobs(k_multi_tdeltas)
+        print('multi_dt : {}-pts across {}-measurements'.format(npt, nobs))
+
+    # save
+    if out_file is not None:
+        with open(out_file, 'wb') as f:
+            pickle.dump(ppdata, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.close()
+        if verbose:
+            print('\n wrote pre-processed datapkl to: {}'.format(out_file))
+
+    return ppdata
+
+def chk_datashape(ppdata):
+    ts_mismatch = []
+    datalen = []
+    for k, v in ppdata.items():
+        if len(v[0]) != len(v[1]):
+            ts_mismatch.append(k)
+        datalen.append(len(v[0]))
+    if len(np.unique(datalen)) != 1:
+        print('Test failed. There are data of different shapes')
+    return datalen
+
+
 def load_pp_rawdata(pp_pkl_out='/home/ngr/gdrive/wearables/data/processed/pp_GAactigraphy.pkl', load_datadict=True):
+    '''v0.2 pre-processing of the data from raw download.
+
+    TODO:
+      - [x] add arguments for fx calls.
+      - [ ] clean run on lab server
+    '''
     if load_datadict:
         data = load_datadict()
     else:
         data = pkldata(pkl_out='/home/ngr/gdrive/wearables/data/processed/GAactigraphy_datadict.pkl') # iterative saving
 
     # quality control
-    chk_tdeltas_multiday()
-    get_ntimepoints()
-    viz_prop_n_days()
+    results_table = chk_tdeltas_multiday(data, out_file='/home/ngr/gdrive/wearables/results/npts_nmeas_after_truncating_longdata.csv')
+    nt = get_ntimepoints(data)
+    viz_prop_n_days(data, out_file='/home/ngr/gdrive/wearables/results/n_days_after_adding_leadingpad.pdf')
 
     ## check how many 0s there may be
 
     ## get data
-    getdata_fromdict()
-    return data
+    ppdata = ppdata_fromdict2dict(data, out_file='/home/ngr/gdrive/wearables/data/processed/ppdata_1wk.pkl')
+    datalens = weardata.chk_datashape(ppdata)
+
+    return ppdata
+
+# v0.2
+def load_ppdata(filepath='/home/ngr/gdrive/wearables/data/processed/ppdata_1wk.pkl'):
+    with open(filepath, 'rb') as f:
+        ppdata = pickle.load(f)
+        f.close()
+    return ppdata
+
+def load_rawmd(filepath='/home/ngr/gdrive/wearables/data/raw/MOD_Data_2021.csv'):
+    return pd.read_csv(filepath, low_memory=False)
 
 # v0.1
 def load_pp_actigraphy(fname='/home/ngr/gdrive/wearables/data/processed/MOD_1000_Woman_Activity_Data.pkl'):
@@ -397,3 +450,199 @@ def get_train_test_yID():
     X_train, y_train = pad_align_transform_yID(data_train)
     X_test, y_test = pad_align_transform_yID(data_test)
     return {'X_train':X_train, 'y_train':y_train, 'X_test':X_test, 'y_test':y_test}
+
+# preoprocess metadata
+def nan2n(x_i, n=7):
+    x_i = x_i.replace([np.nan], int(n))
+    return x_i
+
+def mean_impute(x_i):
+    x_i = x_i.fillna(x_i.mean())
+    return x_i
+
+def n2nan(x_i, mean_impute_after=True, n=-99):
+    x_i = x_i.replace([int(n)], np.nan)
+    if mean_impute_after:
+        x_i = mean_impute(x_i)
+    return x_i
+
+def md_filters(x_i, filter):
+    if 'nan2' in filter:
+        x_i = nan2n(x_i, n=filter.split('nan2')[1])
+    elif '2nan' in filter:
+        x_i = n2nan(x_i, n=filter.split('2nan')[0])
+    elif filter == 'mean_impute': # technically erroneous because need train/test split info
+        x_i = mean_impute(x_i)
+    else:
+        warnings.warn('Warning. Transform not recognized')
+        print('  \nTransformation for {} variable skipped.\n'.format(x_i.name))
+
+def pp_metadata(md, voi, pids2keep=None, out_file=None):
+    '''Pre-process metadata and store in pkl with dataframe and variable info.
+
+    TODO:
+      - (enhancement): add more lists of transforms, e.g., ['nan2-99', 'lt182dob', 'logpseudocount']
+        applied in series
+
+    Arguments:
+      md (pd.DataFrame): metadata read in with record_id as pid from csv file
+      voi (dict): keys are variable name in metadata and values are tuples, specifying
+        (transform, dtype) where transform is a string for a function and dtype is categorical
+        or continuous. All continuous var will be stored as np.float32, and categorical is a flag
+        to later one-hot-encode (non-ordinal numbers can still be stored). Transform can have
+    '''
+    if pids2keep is not None:
+        # filter out erroneous data by pid (alternatively, metadata may already be filtered)
+        md = md.loc[md['record_id'].isin(pids2keep), :]
+
+    ppmd = pd.DataFrame()
+    ppmd['record_id'] = md['record_id']
+
+    for i, (k, v) in enumerate(voi.items()):
+        x_i = md[k]
+        if v[0] is not None:
+            if isinstance(v[0], list):
+                for filter in v[0]:
+                    x_i = md_filters(x_i, filter)
+            else:
+                x_i = md_filters(x_i, v[0])
+        ppmd[k] = x_i
+
+    if out_file is not None:
+        metadata = {}
+        metadata['md'] = ppmd
+        metadata['variables'] = voi
+        with open(out_file, 'wb') as f:
+            pickle.dump(metadata, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.close()
+
+    return ppmd
+
+
+if __name__ == '__main__':
+    # preprocessing
+    ## metadata
+    ### variables of interest (based on codebook read)
+        voi = {
+        # tip: search for sections in code book by "intstrument"
+
+            # dmographics
+            'age_enroll': (['22nan', 'mean_impute'], 'continuous'),
+            'marital': ('nan27', 'categorical'),
+            'gestage_by': ('nan2-99', 'categorical'),
+            'insur': ('nan2-99', 'categorical'),
+            'ethnicity': ('nan23', 'categorical'),
+            'race': ('nan27', 'categorical'),
+            'bmi_1vis': ('mean_impute', 'continuous'),
+            'prior_ptb_all': ('nan25', 'categorical'),
+            'fullterm_births': ('nan25', 'categorical'),
+            'surghx_none': ('nan20', 'categorical'),
+            'alcohol': ('nan22', 'categorical'),
+            'smoke': ('nan22', 'categorical'),
+            'drugs': ('nan22', 'categorical'),
+            'hypertension': ('nan22', 'categorical'),
+            'pregestational_diabetes': ('nan22', 'categorical'),
+
+            # chronic conditions (?)
+            'asthma_yes___1': (None, 'categorical'), # asthma
+            'asthma_yes___2': (None, 'categorical'), # diabetes
+            'asthma_yes___3': (None, 'categorical'), # gestational hypertension
+            'asthma_yes___4': (None, 'categorical'), # CHTN
+            'asthma_yes___5': (None, 'categorical'), # anomaly
+            'asthma_yes___6': (None, 'categorical'), # lupus
+            'asthma_yes___7': (None, 'categorical'), # throid disease
+            'asthma_yes___8': (None, 'categorical'), # heart disease
+            'asthma_yes___9': (None, 'categorical'), # liver disease
+            'asthma_yes___10': (None, 'categorical'), # renal disease
+            'asthma_yes___13': (None, 'categorical'), # IUGR
+            'asthma_yes___14': (None, 'categorical'), # polyhraminios
+            'asthma_yes___15': (None, 'categorical'), # oligohydraminos
+            'asthma_yes___18': (None, 'categorical'), # anxiety
+            'asthma_yes___19': (None, 'categorical'), # depression
+            'asthma_yes___20': (None, 'categorical'), # anemia
+            'other_disease': ('nan22', 'categorical'),
+            'gestational_diabetes': ('nan22', 'categorical'),
+            'ghtn': ('nan22', 'categorical'),
+            'preeclampsia': ('nan22', 'categorical'),
+            'rh': ('nan22', 'categorical'),
+            'corticosteroids': ('nan22', 'categorical'),
+            'abuse': ('nan23', 'categorical'),
+            'assist_repro': ('nan23', 'categorical'),
+            'gyn_infection': ('nan22', 'categorical'),
+            'maternal_del_weight': ('-992nan', 'continuous'),
+            'ptb_37wks': ('nan22', 'categorical'),
+
+            # vitals and labs @admission
+            'cbc_hct': ('-992nan', 'continuous'), # NOTE: some of these shouldn't be negative, need some filtering
+            'cbc_wbc': ('-992nan', 'continuous'),
+            'cbc_plts': ('-992nan', 'continuous'),
+            'cbc_mcv': ('-992nan', 'continuous'),
+            'art_ph': ('-992nan', 'continuous'),
+            'art_pco2': ('-992nan', 'continuous'),
+            'art_po2': ('-992nan', 'continuous'),
+            'art_excess': ('-992nan', 'continuous'),
+            'art_lactate': ('-992nan', 'continuous'),
+            'ven_ph': : ('-992nan', 'continuous'),
+            'ven_pco2': ('-992nan', 'continuous'),
+            'ven_po2': ('-992nan', 'continuous'),
+            'ven_excess': ('-992nan', 'continuous'),
+            'ven_lactate': ('-992nan', 'continuous'),
+            'anes_type': ('-992nan', 'continuous'),
+            'epidural': ('nan20', 'categorical'),
+            'deliv_mode': ('nan24', 'categorical'),
+
+            # infant things
+            'infant_wt': ('-992nan', 'continuous'), # kg
+            'infant_length': ('-992nan', 'continuous'),
+            'head_circ': ('-992nan', 'continuous'),
+            'death_baby': ('nan20', 'categorical'),
+            'neonatal_complication': (['22nan', 'nan20'], 'categorical'),
+
+            # postpartum
+            'ervisit': ('nan20', 'categorical'),
+            'ppvisit_dx': ('nan26', 'categorical'),
+
+            # surveys
+            'education1': ('nan2-99', 'categorical'),
+            'paidjob1': ('nan20', 'categorical'),
+            'work_hrs1': ('nan2-99', 'categorical'),
+            'income_annual1': ('nan2-99', 'categorical'),
+            'income_support1': ('nan2-99', 'categorical'),
+            'regular_period1': ('nan2-88', 'categorical'),
+            'period_window1': ('nan2-88', 'categorical'),
+            'menstrual_days1': ('nan2-88', 'categorical'),
+            'bc_past1': ('nan20', 'categorical'),
+            'bc_years1': (['882nan', 'nan2-88'], 'categorical'),
+            'months_noprego1': ('nan24', 'categorical'),
+            'premature_birth1', ####HERE.210721.335pm
+            'stress3_1',
+            'workreg_1trim',
+
+            'choosesleep_1trim',
+            'slpwake_1trim',
+            'slp30_1trim',
+            'sleep_qual1',
+            'slpenergy1',
+            ## epworth (sum), for interpretation: https://epworthsleepinessscale.com/about-the-ess/ (NOTE: convert 4 to np.nan for sum)
+            'sitting1',
+            'tv1',
+            'inactive1',
+            'passenger1',
+            'reset1',
+            'talking1',
+            'afterlunch1',
+            'cartraffic1',
+            ## edinburgh depression scale
+            'edinb1_1trim',
+            'edinb2_1trim',
+            'edinb3_1trim',
+            'edinb4_1trim',
+            'edinb5_1trim',
+            'edinb6_1trim',
+            'edinb7_1trim',
+            'edinb8_1trim',
+            'edinb9_1trim',
+            'edinb10_1trim',
+            ## difficult life circumstances
+            ## sleep diary
+    }
