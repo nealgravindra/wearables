@@ -466,16 +466,33 @@ def n2nan(x_i, mean_impute_after=True, n=-99):
         x_i = mean_impute(x_i)
     return x_i
 
-def md_filters(x_i, filter):
-    if 'nan2' in filter:
-        x_i = nan2n(x_i, n=filter.split('nan2')[1])
-    elif '2nan' in filter:
-        x_i = n2nan(x_i, n=filter.split('2nan')[0])
-    elif filter == 'mean_impute': # technically erroneous because need train/test split info
+def md_filters(x_i, f):
+    if 'nan2' in f:
+        x_i = nan2n(x_i, n=f.split('nan2')[1])
+    elif '2nan' in f:
+        x_i = n2nan(x_i, n=f.split('2nan')[0])
+    elif f == 'mean_impute': # technically erroneous because need train/test split info
         x_i = mean_impute(x_i)
     else:
         warnings.warn('Warning. Transform not recognized')
         print('  \nTransformation for {} variable skipped.\n'.format(x_i.name))
+    return x_i
+
+def md_data_keymatch(data, md, fix_key=True, del_unmatched_data=True):
+    if fix_key:
+        # fix a particular key:
+        try:
+            data['1276-20'] = data['p1276_2014-20']
+            del data['p1276_2014-20']
+        except KeyError:
+            pass
+    pid = [k.split('-')[0] for k in data.keys()]
+    if del_unmatched_data:
+        for k in [i for i in data.keys() if i.split('-')[0] not in md['record_id'].astype(str).to_list()]:
+            warnings.warn('Warning. Data-metadata mismatch on key')
+            print('  removed {} since it is not in metadata'.format(k))
+            del data[k]
+    return data, md.loc[md['record_id'].astype(str).isin(pid), :]
 
 def pp_metadata(md, voi, pids2keep=None, out_file=None):
     '''Pre-process metadata and store in pkl with dataframe and variable info.
@@ -502,10 +519,18 @@ def pp_metadata(md, voi, pids2keep=None, out_file=None):
         x_i = md[k]
         if v[0] is not None:
             if isinstance(v[0], list):
-                for filter in v[0]:
-                    x_i = md_filters(x_i, filter)
+                for f in v[0]:
+                    x_i = md_filters(x_i, f)
             else:
                 x_i = md_filters(x_i, v[0])
+        # type to save
+        if v[1] == 'categorical':
+            x_i = x_i.astype(str)
+        elif v[1] == 'continuous':
+            x_i = x_i.astype(np.float32) # single precision
+        else:
+            warnings.warn('Warning. Date type not recognized')
+            print('\nData type for {} left as default type\n'.format(k))
         ppmd[k] = x_i
 
     if out_file is not None:
@@ -515,9 +540,207 @@ def pp_metadata(md, voi, pids2keep=None, out_file=None):
         with open(out_file, 'wb') as f:
             pickle.dump(metadata, f, protocol=pickle.HIGHEST_PROTOCOL)
             f.close()
-
     return ppmd
 
+def load_data_md():
+    data = load_ppdata()
+    # load metadata
+    md = load_rawmd()
+    ppdata, md = md_data_keymatch(data, md)
+    voi = {# demographics
+            'age_enroll': (['22nan', 'mean_impute'], 'continuous'),
+            'marital': ('nan27', 'categorical'),
+            'gestage_by': ('nan2-99', 'categorical'),
+            'insur': ('nan2-99', 'categorical'),
+            'ethnicity': ('nan23', 'categorical'),
+            'race': ('nan27', 'categorical'),
+            'bmi_1vis': ('mean_impute', 'continuous'),
+            'prior_ptb_all': ('nan25', 'categorical'),
+            'fullterm_births': ('nan25', 'categorical'),
+            'surghx_none': ('nan20', 'categorical'),
+            'alcohol': ('nan22', 'categorical'),
+            'smoke': ('nan22', 'categorical'),
+            'drugs': ('nan22', 'categorical'),
+            'hypertension': ('nan22', 'categorical'),
+            'pregestational_diabetes': ('nan22', 'categorical'),
+
+            # chronic conditions (?)
+            'asthma_yes___1': (None, 'categorical'), # asthma
+            'asthma_yes___2': (None, 'categorical'), # diabetes
+            'asthma_yes___3': (None, 'categorical'), # gestational hypertension
+            'asthma_yes___4': (None, 'categorical'), # CHTN
+            'asthma_yes___5': (None, 'categorical'), # anomaly
+            'asthma_yes___6': (None, 'categorical'), # lupus
+            'asthma_yes___7': (None, 'categorical'), # throid disease
+            'asthma_yes___8': (None, 'categorical'), # heart disease
+            'asthma_yes___9': (None, 'categorical'), # liver disease
+            'asthma_yes___10': (None, 'categorical'), # renal disease
+            'asthma_yes___13': (None, 'categorical'), # IUGR
+            'asthma_yes___14': (None, 'categorical'), # polyhraminios
+            'asthma_yes___15': (None, 'categorical'), # oligohydraminos
+            'asthma_yes___18': (None, 'categorical'), # anxiety
+            'asthma_yes___19': (None, 'categorical'), # depression
+            'asthma_yes___20': (None, 'categorical'), # anemia
+            'other_disease': ('nan22', 'categorical'),
+            'gestational_diabetes': ('nan22', 'categorical'),
+            'ghtn': ('nan22', 'categorical'),
+            'preeclampsia': ('nan22', 'categorical'),
+            'rh': ('nan22', 'categorical'),
+            'corticosteroids': ('nan22', 'categorical'),
+            'abuse': ('nan23', 'categorical'),
+            'assist_repro': ('nan23', 'categorical'),
+            'gyn_infection': ('nan22', 'categorical'),
+            'maternal_del_weight': ('-992nan', 'continuous'),
+            'ptb_37wks': ('nan22', 'categorical'),
+
+            # vitals and labs @admission
+            'cbc_hct': ('-992nan', 'continuous'), # NOTE: some of these shouldn't be negative, need some filtering
+            'cbc_wbc': ('-992nan', 'continuous'),
+            'cbc_plts': ('-992nan', 'continuous'),
+            'cbc_mcv': ('-992nan', 'continuous'),
+            'art_ph': ('-992nan', 'continuous'),
+            'art_pco2': ('-992nan', 'continuous'),
+            'art_po2': ('-992nan', 'continuous'),
+            'art_excess': ('-992nan', 'continuous'),
+            'art_lactate': ('-992nan', 'continuous'),
+            'ven_ph': ('-992nan', 'continuous'),
+            'ven_pco2': ('-992nan', 'continuous'),
+            'ven_po2': ('-992nan', 'continuous'),
+            'ven_excess': ('-992nan', 'continuous'),
+            'ven_lactate': ('-992nan', 'continuous'),
+            'anes_type': ('-992nan', 'continuous'),
+            'epidural': ('nan20', 'categorical'),
+            'deliv_mode': ('nan24', 'categorical'),
+
+            # infant things
+            'infant_wt': ('-992nan', 'continuous'), # kg
+            'infant_length': ('-992nan', 'continuous'),
+            'head_circ': ('-992nan', 'continuous'),
+            'death_baby': ('nan20', 'categorical'),
+            'neonatal_complication': (['22nan', 'nan20'], 'categorical'),
+
+            # postpartum
+            'ervisit': ('nan20', 'categorical'),
+            'ppvisit_dx': ('nan26', 'categorical'),
+
+            # surveys
+            'education1': ('nan2-99', 'categorical'),
+            'paidjob1': ('nan20', 'categorical'),
+            'work_hrs1': ('nan2-99', 'categorical'),
+            'income_annual1': ('nan2-99', 'categorical'),
+            'income_support1': ('nan2-99', 'categorical'),
+            'regular_period1': ('nan2-88', 'categorical'),
+            'period_window1': ('nan2-88', 'categorical'),
+            'menstrual_days1': ('nan2-88', 'categorical'),
+            'bc_past1': ('nan20', 'categorical'),
+            'bc_years1': (['882nan', 'nan2-88'], 'categorical'),
+            'months_noprego1': ('nan24', 'categorical'),
+            'premature_birth1': ('nan2-88', 'categorical'),
+            'stress3_1': ('nan2-99', 'categorical'),
+            'workreg_1trim': ('nan20', 'categorical'),
+
+            'choosesleep_1trim': ('nan2-99', 'categorical'),
+            'slpwake_1trim': ('nan2-99', 'categorical'),
+            'slp30_1trim': ('nan2-99', 'categorical'),
+            'sleep_qual1': ('nan2-99', 'categorical'),
+            'slpenergy1': ('nan2-99', 'categorical'),
+            ## epworth (sum), for interpretation: https://epworthsleepinessscale.com/about-the-ess/ (NOTE: convert 4 to np.nan for sum)
+            'sitting1': ('nan20', 'categorical'), ### TODO: add fx to sum this from metadata, then convert to continuous label for regression
+            'tv1': ('nan20', 'categorical'),
+            'inactive1': ('nan20', 'categorical'),
+            'passenger1': ('nan20', 'categorical'),
+            'reset1': ('nan20', 'categorical'),
+            'talking1': ('nan20', 'categorical'),
+            'afterlunch1': ('nan20', 'categorical'),
+            'cartraffic1': ('nan20', 'categorical'),
+            ## edinburgh depression scale
+            'edinb1_1trim': ('nan2-99', 'categorical'),
+            'edinb2_1trim': ('nan2-99', 'categorical'),
+            'edinb3_1trim': ('nan2-99', 'categorical'),
+            'edinb4_1trim': ('nan2-99', 'categorical'),
+            'edinb5_1trim': ('nan2-99', 'categorical'),
+            'edinb6_1trim': ('nan2-99', 'categorical'),
+            'edinb7_1trim': ('nan2-99', 'categorical'),
+            'edinb8_1trim': ('nan2-99', 'categorical'),
+            'edinb9_1trim': ('nan2-99', 'categorical'),
+            'edinb10_1trim': ('nan2-99', 'categorical'),
+            ## difficult life circumstances
+            ## sleep diary
+            }
+    ppmd = pp_metadata(md, voi)
+    return ppdata, ppmd
+
+# train/test data with user specified label
+def split_by_pid(X, df, label='GA'):
+    pids = df['pid'].to_list()
+    train_pids = np.random.choice(pids, int(len(pids)*0.8), replace=False)
+    test_pids = [i for i in pids if i not in train_pids]
+    train_idx = df.loc[df['pid'].isin(train_pids), :].index.to_list()
+    test_idx = df.loc[df['pid'].isin(test_pids), :].index.to_list()
+    Y = df[label]
+    X_train, y_train = X[train_idx, :], Y.iloc[train_idx]
+    X_test, y_test = X[test_idx, :], Y.iloc[test_idx]
+    return X_train, y_train, X_test, y_test
+
+def get_Xy(data, md, label='GA'):
+    '''Pick label, and figure out what it is (regression or classification) unless GA.
+
+    TODO:
+      - [ ] (enhancement): label encoding before returning data
+    '''
+    X = np.zeros((len(data.keys()), data[list(data.keys())[0]][1].shape[0]))
+    label_df = pd.DataFrame()
+    for i, (k, v) in data.items():
+        X[i, :] = v[1]
+        label_df[i, 'pid'] = k.split('-')[0]
+        label_df[i, 'GA'] = float(k.split('-')[1])
+        if label != 'GA':
+            # need to add from metadata
+            label_df[i, label] = md.loc[md['record_id'].astype(str)==pid, label]
+    X_train, y_train, X_test, y_test = split_by_pid(X, label_df, label=label)
+    return X_train, y_train, X_test, y_test
+
+def split_by_pid(X, df, label='GA'):
+    pids = df['pid'].to_list()
+    train_pids = np.random.choice(pids, int(len(pids)*0.8), replace=False)
+    test_pids = [i for i in pids if i not in train_pids]
+    train_idx = df.loc[df['pid'].isin(train_pids), :].index.to_list()
+    test_idx = df.loc[df['pid'].isin(test_pids), :].index.to_list()
+    Y = df[label]
+    X_train, y_train = X[train_idx, :], Y.iloc[train_idx]
+    X_test, y_test = X[test_idx, :], Y.iloc[test_idx]
+    return X_train, y_train, X_test, y_test
+
+# data transforms
+def logpseudocount(X):
+    return np.log(X + 1.)
+
+def standardize(X):
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    return scaler.fit_transform(X)
+
+def get_Xy(data, md, label='GA', filter=True):
+    '''Pick label, and figure out what it is (regression or classification) unless GA.
+
+    TODO:
+      - [ ] (enhancement): label encoding before returning data
+    '''
+    X = np.zeros((len(data.keys()), data[list(data.keys())[0]][1].shape[0]))
+    label_df = pd.DataFrame(index=np.arange(len(data.keys())))
+    for i, (k, v) in enumerate(data.items()):
+        X[i, :] = v[1]
+        pid = k.split('-')[0]
+        label_df.loc[i, 'pid'] = pid
+        label_df.loc[i, 'GA'] = float(k.split('-')[1])
+        if label != 'GA':
+            # need to add from metadata
+            label_df.loc[i, label] = md.loc[md['record_id'].astype(str)==pid, label].values[0]
+    X_train, y_train, X_test, y_test = split_by_pid(X, label_df, label=label)
+    if filter:
+        X_train = standardize(logpseudocount(X_train))
+        X_test = standardize(logpseudocount(X_test))
+    return X_train, y_train, X_test, y_test
 
 if __name__ == '__main__':
     # preprocessing
@@ -582,7 +805,7 @@ if __name__ == '__main__':
             'art_po2': ('-992nan', 'continuous'),
             'art_excess': ('-992nan', 'continuous'),
             'art_lactate': ('-992nan', 'continuous'),
-            'ven_ph': : ('-992nan', 'continuous'),
+            'ven_ph': ('-992nan', 'continuous'),
             'ven_pco2': ('-992nan', 'continuous'),
             'ven_po2': ('-992nan', 'continuous'),
             'ven_excess': ('-992nan', 'continuous'),
@@ -614,35 +837,35 @@ if __name__ == '__main__':
             'bc_past1': ('nan20', 'categorical'),
             'bc_years1': (['882nan', 'nan2-88'], 'categorical'),
             'months_noprego1': ('nan24', 'categorical'),
-            'premature_birth1', ####HERE.210721.335pm
-            'stress3_1',
-            'workreg_1trim',
+            'premature_birth1': ('nan2-88', 'categorical'),
+            'stress3_1': ('nan2-99', 'categorical'),
+            'workreg_1trim': ('nan20', 'categorical'),
 
-            'choosesleep_1trim',
-            'slpwake_1trim',
-            'slp30_1trim',
-            'sleep_qual1',
-            'slpenergy1',
+            'choosesleep_1trim': ('nan2-99', 'categorical'),
+            'slpwake_1trim': ('nan2-99', 'categorical'),
+            'slp30_1trim': ('nan2-99', 'categorical'),
+            'sleep_qual1': ('nan2-99', 'categorical'),
+            'slpenergy1': ('nan2-99', 'categorical'),
             ## epworth (sum), for interpretation: https://epworthsleepinessscale.com/about-the-ess/ (NOTE: convert 4 to np.nan for sum)
-            'sitting1',
-            'tv1',
-            'inactive1',
-            'passenger1',
-            'reset1',
-            'talking1',
-            'afterlunch1',
-            'cartraffic1',
+            'sitting1': ('nan20', 'categorical'), ### TODO: add fx to sum this from metadata, then convert to continuous label for regression
+            'tv1': ('nan20', 'categorical'),
+            'inactive1': ('nan20', 'categorical'),
+            'passenger1': ('nan20', 'categorical'),
+            'reset1': ('nan20', 'categorical'),
+            'talking1': ('nan20', 'categorical'),
+            'afterlunch1': ('nan20', 'categorical'),
+            'cartraffic1': ('nan20', 'categorical'),
             ## edinburgh depression scale
-            'edinb1_1trim',
-            'edinb2_1trim',
-            'edinb3_1trim',
-            'edinb4_1trim',
-            'edinb5_1trim',
-            'edinb6_1trim',
-            'edinb7_1trim',
-            'edinb8_1trim',
-            'edinb9_1trim',
-            'edinb10_1trim',
+            'edinb1_1trim': ('nan2-99', 'categorical'),
+            'edinb2_1trim': ('nan2-99', 'categorical'),
+            'edinb3_1trim': ('nan2-99', 'categorical'),
+            'edinb4_1trim': ('nan2-99', 'categorical'),
+            'edinb5_1trim': ('nan2-99', 'categorical'),
+            'edinb6_1trim': ('nan2-99', 'categorical'),
+            'edinb7_1trim': ('nan2-99', 'categorical'),
+            'edinb8_1trim': ('nan2-99', 'categorical'),
+            'edinb9_1trim': ('nan2-99', 'categorical'),
+            'edinb10_1trim': ('nan2-99', 'categorical'),
             ## difficult life circumstances
             ## sleep diary
     }
