@@ -1,0 +1,12 @@
+Experiments
+-----------
+1. prediction
+    - problem: which inductive biases and architectures are best suited for monitoring activity monitoring ts
+          that yield the best single classification or regression results from a whole time-series
+    - solution: compare SOTA methods for large data with KRR v. TimeSeriesRF v. knn w/DTW v. InceptionTime v. LSTM
+          v. CNN v. MLP based with similar designs
+2. interprability
+    - problem: what metadata is useful and how to handle self-reported survey data. In particular, why are
+          there 3 surveys, how to pair up survey date, etc.
+3. phenotyping (chronotyping)
+
