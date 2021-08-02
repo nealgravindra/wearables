@@ -542,10 +542,17 @@ def pp_metadata(md, voi, pids2keep=None, out_file=None):
             f.close()
     return ppmd
 
-def load_data_md():
-    data = load_ppdata()
+def load_data_md(datapkl_file='/home/ngr/gdrive/wearables/data/processed/ppdata_1wk.pkl',
+                 md_file='/home/ngr/gdrive/wearables/data/raw/MOD_Data_2021.csv'):
+    '''Load filtered cohort and metadata columns by PID for modeling.
+
+    NOTE:
+      - updated 21.08.01
+      - the two files indicated are the minimal package for data transfer
+    '''
+    data = load_ppdata(filepath=datapkl_file)
     # load metadata
-    md = load_rawmd()
+    md = load_rawmd(filepath=md_file)
     ppdata, md = md_data_keymatch(data, md)
     voi = {# demographics
             'age_enroll': (['22nan', 'mean_impute'], 'continuous'),
@@ -671,45 +678,26 @@ def load_data_md():
     return ppdata, ppmd
 
 # train/test data with user specified label
-def split_by_pid(X, df, label='GA'):
-    pids = df['pid'].to_list()
-    train_pids = np.random.choice(pids, int(len(pids)*0.8), replace=False)
-    test_pids = [i for i in pids if i not in train_pids]
-    train_idx = df.loc[df['pid'].isin(train_pids), :].index.to_list()
-    test_idx = df.loc[df['pid'].isin(test_pids), :].index.to_list()
-    Y = df[label]
-    X_train, y_train = X[train_idx, :], Y.iloc[train_idx]
-    X_test, y_test = X[test_idx, :], Y.iloc[test_idx]
-    return X_train, y_train, X_test, y_test
-
-def get_Xy(data, md, label='GA'):
-    '''Pick label, and figure out what it is (regression or classification) unless GA.
-
-    TODO:
-      - [ ] (enhancement): label encoding before returning data
+def split_by_pid(X, df, val=False, label='GA', prop_train=0.8):
+    '''Split data by patient ID.
     '''
-    X = np.zeros((len(data.keys()), data[list(data.keys())[0]][1].shape[0]))
-    label_df = pd.DataFrame()
-    for i, (k, v) in data.items():
-        X[i, :] = v[1]
-        label_df[i, 'pid'] = k.split('-')[0]
-        label_df[i, 'GA'] = float(k.split('-')[1])
-        if label != 'GA':
-            # need to add from metadata
-            label_df[i, label] = md.loc[md['record_id'].astype(str)==pid, label]
-    X_train, y_train, X_test, y_test = split_by_pid(X, label_df, label=label)
-    return X_train, y_train, X_test, y_test
-
-def split_by_pid(X, df, label='GA'):
-    pids = df['pid'].to_list()
-    train_pids = np.random.choice(pids, int(len(pids)*0.8), replace=False)
-    test_pids = [i for i in pids if i not in train_pids]
-    train_idx = df.loc[df['pid'].isin(train_pids), :].index.to_list()
-    test_idx = df.loc[df['pid'].isin(test_pids), :].index.to_list()
+    pids = np.unique(df['pid'].to_list())
     Y = df[label]
+    train_pids = np.random.choice(pids, int(len(pids)*prop_train), replace=False)
+    test_pids = [i for i in pids if i not in train_pids]
+    train_idx = np.where(df['pid'].isin(train_pids))[0] #df.loc[df['pid'].isin(train_pids), :].index.to_list()
     X_train, y_train = X[train_idx, :], Y.iloc[train_idx]
+    if val:
+        val_pids = np.random.choice(test_pids, int(len(test_pids)*0.5), replace=False)
+        val_idx = np.where(df['pid'].isin(val_pids))[0] #df.loc[df['pid'].isin(val_pids), :].index.to_list()
+        X_val, y_val = X[val_idx, :], Y.iloc[val_idx]
+        test_pids = [i for i in test_pids if i not in val_pids]
+    test_idx = np.where(df['pid'].isin(test_pids))[0] #df.loc[df['pid'].isin(test_pids), :].index.to_list()
     X_test, y_test = X[test_idx, :], Y.iloc[test_idx]
-    return X_train, y_train, X_test, y_test
+    if val:
+        return X_train, y_train, X_val, y_val, X_test, y_test
+    else:
+        return X_train, y_train, X_test, y_test
 
 # data transforms
 def logpseudocount(X):
@@ -720,7 +708,7 @@ def standardize(X):
     scaler = StandardScaler()
     return scaler.fit_transform(X)
 
-def get_Xy(data, md, label='GA', filter=True):
+def get_Xy(data, md, val=True, prop_train=0.8, label='GA', transform=True, verbose=False):
     '''Pick label, and figure out what it is (regression or classification) unless GA.
 
     TODO:
@@ -736,136 +724,34 @@ def get_Xy(data, md, label='GA', filter=True):
         if label != 'GA':
             # need to add from metadata
             label_df.loc[i, label] = md.loc[md['record_id'].astype(str)==pid, label].values[0]
-    X_train, y_train, X_test, y_test = split_by_pid(X, label_df, label=label)
-    if filter:
+    if val:
+        X_train, y_train, X_val, y_val, X_test, y_test = split_by_pid(X, label_df, val=val, prop_train=prop_train, label=label)
+        if transform:
+            X_val = standardize(logpseudocount(X_val))
+    else:
+        X_train, y_train, X_test, y_test = split_by_pid(X, label_df, val=val, prop_train=prop_train, label=label)
+    if transform:
         X_train = standardize(logpseudocount(X_train))
         X_test = standardize(logpseudocount(X_test))
-    return X_train, y_train, X_test, y_test
+    if val:
+        if verbose:
+            # print shapes
+            print('X_train: ({}, {})'.format(X_train.shape[0], X_train.shape[1]))
+            print('y_train: ({},)'.format(y_train.shape[0]))
+            print('X_val: ({}, {})'.format(X_val.shape[0], X_val.shape[1]))
+            print('y_val: ({},)'.format(y_val.shape[0]))
+            print('X_test: ({}, {})'.format(X_test.shape[0], X_test.shape[1]))
+            print('y_test: ({},)'.format(y_test.shape[0]))
+        return X_train, y_train, X_val, y_val, X_test, y_test
+    else:
+        if verbose:
+            # print shapes
+            print('X_train: ({}, {})'.format(X_train.shape[0], X_train.shape[1]))
+            print('y_train: ({},)'.format(y_train.shape[0]))
+            print('X_test: ({}, {})'.format(X_test.shape[0], X_test.shape[1]))
+            print('y_test: ({},)'.format(y_test.shape[0]))
+        return X_train, y_train, X_test, y_test
 
 if __name__ == '__main__':
-    # preprocessing
-    ## metadata
-    ### variables of interest (based on codebook read)
-        voi = {
-        # tip: search for sections in code book by "intstrument"
-
-            # dmographics
-            'age_enroll': (['22nan', 'mean_impute'], 'continuous'),
-            'marital': ('nan27', 'categorical'),
-            'gestage_by': ('nan2-99', 'categorical'),
-            'insur': ('nan2-99', 'categorical'),
-            'ethnicity': ('nan23', 'categorical'),
-            'race': ('nan27', 'categorical'),
-            'bmi_1vis': ('mean_impute', 'continuous'),
-            'prior_ptb_all': ('nan25', 'categorical'),
-            'fullterm_births': ('nan25', 'categorical'),
-            'surghx_none': ('nan20', 'categorical'),
-            'alcohol': ('nan22', 'categorical'),
-            'smoke': ('nan22', 'categorical'),
-            'drugs': ('nan22', 'categorical'),
-            'hypertension': ('nan22', 'categorical'),
-            'pregestational_diabetes': ('nan22', 'categorical'),
-
-            # chronic conditions (?)
-            'asthma_yes___1': (None, 'categorical'), # asthma
-            'asthma_yes___2': (None, 'categorical'), # diabetes
-            'asthma_yes___3': (None, 'categorical'), # gestational hypertension
-            'asthma_yes___4': (None, 'categorical'), # CHTN
-            'asthma_yes___5': (None, 'categorical'), # anomaly
-            'asthma_yes___6': (None, 'categorical'), # lupus
-            'asthma_yes___7': (None, 'categorical'), # throid disease
-            'asthma_yes___8': (None, 'categorical'), # heart disease
-            'asthma_yes___9': (None, 'categorical'), # liver disease
-            'asthma_yes___10': (None, 'categorical'), # renal disease
-            'asthma_yes___13': (None, 'categorical'), # IUGR
-            'asthma_yes___14': (None, 'categorical'), # polyhraminios
-            'asthma_yes___15': (None, 'categorical'), # oligohydraminos
-            'asthma_yes___18': (None, 'categorical'), # anxiety
-            'asthma_yes___19': (None, 'categorical'), # depression
-            'asthma_yes___20': (None, 'categorical'), # anemia
-            'other_disease': ('nan22', 'categorical'),
-            'gestational_diabetes': ('nan22', 'categorical'),
-            'ghtn': ('nan22', 'categorical'),
-            'preeclampsia': ('nan22', 'categorical'),
-            'rh': ('nan22', 'categorical'),
-            'corticosteroids': ('nan22', 'categorical'),
-            'abuse': ('nan23', 'categorical'),
-            'assist_repro': ('nan23', 'categorical'),
-            'gyn_infection': ('nan22', 'categorical'),
-            'maternal_del_weight': ('-992nan', 'continuous'),
-            'ptb_37wks': ('nan22', 'categorical'),
-
-            # vitals and labs @admission
-            'cbc_hct': ('-992nan', 'continuous'), # NOTE: some of these shouldn't be negative, need some filtering
-            'cbc_wbc': ('-992nan', 'continuous'),
-            'cbc_plts': ('-992nan', 'continuous'),
-            'cbc_mcv': ('-992nan', 'continuous'),
-            'art_ph': ('-992nan', 'continuous'),
-            'art_pco2': ('-992nan', 'continuous'),
-            'art_po2': ('-992nan', 'continuous'),
-            'art_excess': ('-992nan', 'continuous'),
-            'art_lactate': ('-992nan', 'continuous'),
-            'ven_ph': ('-992nan', 'continuous'),
-            'ven_pco2': ('-992nan', 'continuous'),
-            'ven_po2': ('-992nan', 'continuous'),
-            'ven_excess': ('-992nan', 'continuous'),
-            'ven_lactate': ('-992nan', 'continuous'),
-            'anes_type': ('-992nan', 'continuous'),
-            'epidural': ('nan20', 'categorical'),
-            'deliv_mode': ('nan24', 'categorical'),
-
-            # infant things
-            'infant_wt': ('-992nan', 'continuous'), # kg
-            'infant_length': ('-992nan', 'continuous'),
-            'head_circ': ('-992nan', 'continuous'),
-            'death_baby': ('nan20', 'categorical'),
-            'neonatal_complication': (['22nan', 'nan20'], 'categorical'),
-
-            # postpartum
-            'ervisit': ('nan20', 'categorical'),
-            'ppvisit_dx': ('nan26', 'categorical'),
-
-            # surveys
-            'education1': ('nan2-99', 'categorical'),
-            'paidjob1': ('nan20', 'categorical'),
-            'work_hrs1': ('nan2-99', 'categorical'),
-            'income_annual1': ('nan2-99', 'categorical'),
-            'income_support1': ('nan2-99', 'categorical'),
-            'regular_period1': ('nan2-88', 'categorical'),
-            'period_window1': ('nan2-88', 'categorical'),
-            'menstrual_days1': ('nan2-88', 'categorical'),
-            'bc_past1': ('nan20', 'categorical'),
-            'bc_years1': (['882nan', 'nan2-88'], 'categorical'),
-            'months_noprego1': ('nan24', 'categorical'),
-            'premature_birth1': ('nan2-88', 'categorical'),
-            'stress3_1': ('nan2-99', 'categorical'),
-            'workreg_1trim': ('nan20', 'categorical'),
-
-            'choosesleep_1trim': ('nan2-99', 'categorical'),
-            'slpwake_1trim': ('nan2-99', 'categorical'),
-            'slp30_1trim': ('nan2-99', 'categorical'),
-            'sleep_qual1': ('nan2-99', 'categorical'),
-            'slpenergy1': ('nan2-99', 'categorical'),
-            ## epworth (sum), for interpretation: https://epworthsleepinessscale.com/about-the-ess/ (NOTE: convert 4 to np.nan for sum)
-            'sitting1': ('nan20', 'categorical'), ### TODO: add fx to sum this from metadata, then convert to continuous label for regression
-            'tv1': ('nan20', 'categorical'),
-            'inactive1': ('nan20', 'categorical'),
-            'passenger1': ('nan20', 'categorical'),
-            'reset1': ('nan20', 'categorical'),
-            'talking1': ('nan20', 'categorical'),
-            'afterlunch1': ('nan20', 'categorical'),
-            'cartraffic1': ('nan20', 'categorical'),
-            ## edinburgh depression scale
-            'edinb1_1trim': ('nan2-99', 'categorical'),
-            'edinb2_1trim': ('nan2-99', 'categorical'),
-            'edinb3_1trim': ('nan2-99', 'categorical'),
-            'edinb4_1trim': ('nan2-99', 'categorical'),
-            'edinb5_1trim': ('nan2-99', 'categorical'),
-            'edinb6_1trim': ('nan2-99', 'categorical'),
-            'edinb7_1trim': ('nan2-99', 'categorical'),
-            'edinb8_1trim': ('nan2-99', 'categorical'),
-            'edinb9_1trim': ('nan2-99', 'categorical'),
-            'edinb10_1trim': ('nan2-99', 'categorical'),
-            ## difficult life circumstances
-            ## sleep diary
-    }
+    data, md = load_data_md()
+    X_train, y_train, X_val, y_val, X_test, y_test = get_Xy(data, md, prop_train=0.8, verbose=True)
