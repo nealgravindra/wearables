@@ -87,7 +87,7 @@ def pred_all(n_trials=1, model_class='RF', out_file=None):
 
             # store results
             dt = pd.DataFrame({'exp':'pred_all',
-                               'model':'TimeSeriesForest',
+                               'model':model_class,
                                'task':target,
                                'target_id':None,
                                'n_trial':n+1,
@@ -116,6 +116,6 @@ if __name__ == '__main__':
     if exp == 'all_RF':
         results = pred_all(model_class='RF', out_file='/home/ngr/gdrive/wearables/results/all_RF_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')))
     elif exp == 'all_knn':
-        results = pred_all(model_class='knn', out_file='/home/ngr/gdrive/wearables/results/all_knn_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')))
+        results = pred_all(n_trials=10, model_class='knn', out_file='/home/ngr/gdrive/wearables/results/all_knn_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')))
     else:
         print('Program to run experiment does not exist. Not implemented.')
