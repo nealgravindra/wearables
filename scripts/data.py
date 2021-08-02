@@ -708,7 +708,7 @@ def standardize(X):
     scaler = StandardScaler()
     return scaler.fit_transform(X)
 
-def get_Xy(data, md, val=True, prop_train=0.8, label='GA', transform=True, verbose=False):
+def get_Xy(data, md, val=True, prop_train=0.8, label='GA', transform=True, single_precision=True, verbose=False):
     '''Pick label, and figure out what it is (regression or classification) unless GA.
 
     TODO:
@@ -742,6 +742,10 @@ def get_Xy(data, md, val=True, prop_train=0.8, label='GA', transform=True, verbo
             print('y_val: ({},)'.format(y_val.shape[0]))
             print('X_test: ({}, {})'.format(X_test.shape[0], X_test.shape[1]))
             print('y_test: ({},)'.format(y_test.shape[0]))
+        if single_precision:
+            X_train = X_train.astype('float32')
+            X_val = X_val.astype('float32')
+            X_test = X_test.astype('float32')
         return X_train, y_train, X_val, y_val, X_test, y_test
     else:
         if verbose:
@@ -750,8 +754,50 @@ def get_Xy(data, md, val=True, prop_train=0.8, label='GA', transform=True, verbo
             print('y_train: ({},)'.format(y_train.shape[0]))
             print('X_test: ({}, {})'.format(X_test.shape[0], X_test.shape[1]))
             print('y_test: ({},)'.format(y_test.shape[0]))
+        if single_precision:
+            X_train = X_train.astype('float32')
+            X_test = X_test.astype('float32')
         return X_train, y_train, X_test, y_test
+
+def series2modeltable(y_dict, wide=False, verbose=False):
+    '''Use the pd.Series data type to one hot encode or convert to continuous
+
+    Arguments:
+      y_dict (dict): Aggregate all y's (y_train, y_test, y_val) as a dict,
+        allowing for flexible size.
+      wide (bool): (optional, Default=False) whether to leave the y array in
+        long or wide form. Ignored if input ys are continuous.
+    '''
+    # make sure get all for label encoder
+    for i, k in enumerate(y_dict.keys()):
+        if i==0:
+            Y = y_dict[k]
+        else:
+            Y = Y.append(y_dict[k])
+    if Y.dtype == 'float':
+        for k in y_dict.keys():
+            y_dict[k] = y_dict[k].astype('float32').to_numpy()
+        return y_dict, 'regression'
+    else:
+        # one hot encode
+        from sklearn.preprocessing import LabelEncoder
+        le = LabelEncoder()
+        le.fit(Y)
+        if verbose:
+            print('Categorical label encoding:')
+            for i, c in enumerate(le.classes_):
+                print('{}: {}'.format(i, c))
+        for k in y_dict.keys():
+            y_dict[k] = le.transform(y_dict[k]) # converts to int64
+            if wide:
+                a = np.zeros((y_dict[k].shape[0], Y.max()+1), dtype=int)
+                y_dict[k] = a[np.arange(y_dict[k].shape[0]), y_dict[k]] = 1
+        return y_dict, le.classes_
+
 
 if __name__ == '__main__':
     data, md = load_data_md()
-    X_train, y_train, X_val, y_val, X_test, y_test = get_Xy(data, md, prop_train=0.8, verbose=True)
+    X_train, y_train, X_val, y_val, X_test, y_test = get_Xy(data, md, label='GA', prop_train=0.8, verbose=True)
+
+    # use the data type to convert y to model-ready, then int v. float can determine classification v. regression
+    y_dict, target_id = series2modeltable({'y_train':y_train, 'y_val':y_val, 'y_test':y_test})
