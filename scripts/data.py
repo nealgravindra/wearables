@@ -790,8 +790,9 @@ def series2modeltable(y_dict, wide=False, verbose=False):
         for k in y_dict.keys():
             y_dict[k] = le.transform(y_dict[k]) # converts to int64
             if wide:
-                a = np.zeros((y_dict[k].shape[0], Y.max()+1), dtype=int)
-                y_dict[k] = a[np.arange(y_dict[k].shape[0]), y_dict[k]] = 1
+                a = np.zeros((len(y_dict[k]), le.classes_.shape[0]), dtype=int)
+                a[np.arange(len(y_dict[k])), y_dict[k]] = 1
+                y_dict[k] = a
         return y_dict, le.classes_
 
 
