@@ -15,7 +15,7 @@ import utils as wearutils
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def pred_all(n_trials=1, model_class='RF', out_file=None):
+def pred_all(n_trials=1, model_class='RF', out_file=None, save_train_data=None):
     '''Predict GA and other vars in metadata with non-DL models.
 
     TODO:
@@ -30,7 +30,15 @@ def pred_all(n_trials=1, model_class='RF', out_file=None):
     timer = wearutils.timer()
     timer.start()
     data, md = weardata.load_data_md()
+    X_train, Y_train, X_val, Y_val, X_test, Y_test = weardata.get_Xy(data, md, prop_train=0.8, verbose=False)
     print('Data and md loaded in {:.0f}-s'.format(timer.stop()))
+    if not save_train_data:
+        with open(save_train_data, 'wb') as f:
+            pickle.dump({'X_train':X_train, 'Y_train':Y_train,
+                         'X_val':X_val, 'Y_val':Y_val,
+                         'X_test':X_test, 'Y_test':Y_test},
+                        f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.close()
 
     results = pd.DataFrame()
     label_list = ['GA'] + [i for i in md.columns if i!='record_id']
@@ -38,10 +46,9 @@ def pred_all(n_trials=1, model_class='RF', out_file=None):
     for n in range(n_trials):
         for i, target in enumerate(label_list):
             timer.start()
-            X_train, y_train, X_val, y_val, X_test, y_test = weardata.get_Xy(data, md, label=target, prop_train=0.8, verbose=False)
 
             # use the data type to convert y to model-ready, then int v. float can determine classification v. regression
-            y_dict, target_id = weardata.series2modeltable({'y_train':y_train, 'y_val':y_val, 'y_test':y_test}, wide=True)
+            y_dict, target_id = weardata.md2y({'y_train':Y_train, 'y_val':Y_val, 'y_test':Y_test}, label=target, wide=True)
             y_train, y_val, y_test = y_dict['y_train'], y_dict['y_val'], y_dict['y_test']
 
             if not isinstance(target_id, np.ndarray): # assume it equals regression
@@ -116,6 +123,8 @@ if __name__ == '__main__':
     if exp == 'all_RF':
         results = pred_all(model_class='RF', out_file='/home/ngr/gdrive/wearables/results/all_RF_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')))
     elif exp == 'all_knn':
-        results = pred_all(n_trials=10, model_class='knn', out_file='/home/ngr/gdrive/wearables/results/all_knn_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')))
+        results = pred_all(n_trials=10, model_class='knn',
+                           out_file='/home/ngr/gdrive/wearables/results/all_knn_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')),
+                           save_train_data='/home/ngr/gdrive/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest{}.pkl'.format(datetime.datetime.now().strftime('%y%m%d')))
     else:
         print('Program to run experiment does not exist. Not implemented.')
