@@ -32,7 +32,7 @@ def pred_all(n_trials=1, model_class='RF', out_file=None, save_train_data=None):
     data, md = weardata.load_data_md()
     X_train, Y_train, X_val, Y_val, X_test, Y_test = weardata.get_Xy(data, md, prop_train=0.8, verbose=False)
     print('Data and md loaded in {:.0f}-s'.format(timer.stop()))
-    if not save_train_data:
+    if save_train_data is not None:
         with open(save_train_data, 'wb') as f:
             pickle.dump({'X_train':X_train, 'Y_train':Y_train,
                          'X_val':X_val, 'Y_val':Y_val,
