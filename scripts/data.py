@@ -678,22 +678,21 @@ def load_data_md(datapkl_file='/home/ngr/gdrive/wearables/data/processed/ppdata_
     return ppdata, ppmd
 
 # train/test data with user specified label
-def split_by_pid(X, df, val=False, label='GA', prop_train=0.8):
+def split_by_pid(X, df, val=False, prop_train=0.8):
     '''Split data by patient ID.
     '''
     pids = np.unique(df['pid'].to_list())
-    Y = df[label]
     train_pids = np.random.choice(pids, int(len(pids)*prop_train), replace=False)
     test_pids = [i for i in pids if i not in train_pids]
     train_idx = np.where(df['pid'].isin(train_pids))[0] #df.loc[df['pid'].isin(train_pids), :].index.to_list()
-    X_train, y_train = X[train_idx, :], Y.iloc[train_idx]
+    X_train, y_train = X[train_idx, :], df.iloc[train_idx, :]
     if val:
         val_pids = np.random.choice(test_pids, int(len(test_pids)*0.5), replace=False)
         val_idx = np.where(df['pid'].isin(val_pids))[0] #df.loc[df['pid'].isin(val_pids), :].index.to_list()
-        X_val, y_val = X[val_idx, :], Y.iloc[val_idx]
+        X_val, y_val = X[val_idx, :], df.iloc[val_idx, :]
         test_pids = [i for i in test_pids if i not in val_pids]
     test_idx = np.where(df['pid'].isin(test_pids))[0] #df.loc[df['pid'].isin(test_pids), :].index.to_list()
-    X_test, y_test = X[test_idx, :], Y.iloc[test_idx]
+    X_test, y_test = X[test_idx, :], df.iloc[test_idx, :]
     if val:
         return X_train, y_train, X_val, y_val, X_test, y_test
     else:
@@ -708,8 +707,8 @@ def standardize(X):
     scaler = StandardScaler()
     return scaler.fit_transform(X)
 
-def get_Xy(data, md, val=True, prop_train=0.8, label='GA', transform=True, single_precision=True, verbose=False):
-    '''Pick label, and figure out what it is (regression or classification) unless GA.
+def get_Xy(data, md, val=True, prop_train=0.8, transform=True, single_precision=True, verbose=False):
+    '''Get actigraphy data and all possible labels for model dev
 
     TODO:
       - [ ] (enhancement): label encoding before returning data
@@ -721,27 +720,26 @@ def get_Xy(data, md, val=True, prop_train=0.8, label='GA', transform=True, singl
         pid = k.split('-')[0]
         label_df.loc[i, 'pid'] = pid
         label_df.loc[i, 'GA'] = float(k.split('-')[1])
-        if label != 'GA':
-            # need to add from metadata
-            label_df.loc[i, label] = md.loc[md['record_id'].astype(str)==pid, label].values[0]
+    md['record_id'] = md['record_id'].astype(str)
+    label_df = label_df.merge(md, left_on='pid', right_on='record_id', how='left')
     if val:
-        X_train, y_train, X_val, y_val, X_test, y_test = split_by_pid(X, label_df, val=val, prop_train=prop_train, label=label)
+        X_train, y_train, X_val, y_val, X_test, y_test = split_by_pid(X, label_df, val=val, prop_train=prop_train)
         if transform:
             X_val = standardize(logpseudocount(X_val))
     else:
-        X_train, y_train, X_test, y_test = split_by_pid(X, label_df, val=val, prop_train=prop_train, label=label)
+        X_train, y_train, X_test, y_test = split_by_pid(X, label_df, val=val, prop_train=prop_train)
     if transform:
         X_train = standardize(logpseudocount(X_train))
         X_test = standardize(logpseudocount(X_test))
     if val:
         if verbose:
             # print shapes
-            print('X_train: ({}, {})'.format(X_train.shape[0], X_train.shape[1]))
-            print('y_train: ({},)'.format(y_train.shape[0]))
-            print('X_val: ({}, {})'.format(X_val.shape[0], X_val.shape[1]))
-            print('y_val: ({},)'.format(y_val.shape[0]))
-            print('X_test: ({}, {})'.format(X_test.shape[0], X_test.shape[1]))
-            print('y_test: ({},)'.format(y_test.shape[0]))
+            print('X_train: ({}, {})'.format(*X_train.shape))
+            print('y_train: ({}, {})'.format(*y_train.shape))
+            print('X_val: ({}, {})'.format(*X_val.shape))
+            print('y_val: ({}, {})'.format(*y_val.shape))
+            print('X_test: ({}, {})'.format(*X_test.shape))
+            print('y_test: ({}, {})'.format(*y_test.shape))
         if single_precision:
             X_train = X_train.astype('float32')
             X_val = X_val.astype('float32')
@@ -750,17 +748,17 @@ def get_Xy(data, md, val=True, prop_train=0.8, label='GA', transform=True, singl
     else:
         if verbose:
             # print shapes
-            print('X_train: ({}, {})'.format(X_train.shape[0], X_train.shape[1]))
-            print('y_train: ({},)'.format(y_train.shape[0]))
-            print('X_test: ({}, {})'.format(X_test.shape[0], X_test.shape[1]))
-            print('y_test: ({},)'.format(y_test.shape[0]))
+            print('X_train: ({}, {})'.format(*X_train.shape))
+            print('y_train: ({}, {})'.format(*y_train.shape))
+            print('X_test: ({}, {})'.format(*X_test.shape))
+            print('y_test: ({}, {})'.format(*y_test.shape))
         if single_precision:
             X_train = X_train.astype('float32')
             X_test = X_test.astype('float32')
         return X_train, y_train, X_test, y_test
 
-def series2modeltable(y_dict, wide=False, verbose=False):
-    '''Use the pd.Series data type to one hot encode or convert to continuous
+def md2y(y_dict, label='GA', wide=False, verbose=False):
+    '''Metadata df of labels to y model table of label
 
     Arguments:
       y_dict (dict): Aggregate all y's (y_train, y_test, y_val) as a dict,
@@ -769,14 +767,15 @@ def series2modeltable(y_dict, wide=False, verbose=False):
         long or wide form. Ignored if input ys are continuous.
     '''
     # make sure get all for label encoder
+
     for i, k in enumerate(y_dict.keys()):
         if i==0:
-            Y = y_dict[k]
+            Y = y_dict[k][label]
         else:
-            Y = Y.append(y_dict[k])
-    if Y.dtype == 'float':
+            Y = Y.append(y_dict[k][label])
+    if not Y.dtype == object:
         for k in y_dict.keys():
-            y_dict[k] = y_dict[k].astype('float32').to_numpy()
+            y_dict[k] = y_dict[k][label].astype('float32').to_numpy()
         return y_dict, 'regression'
     else:
         # one hot encode
@@ -788,7 +787,7 @@ def series2modeltable(y_dict, wide=False, verbose=False):
             for i, c in enumerate(le.classes_):
                 print('{}: {}'.format(i, c))
         for k in y_dict.keys():
-            y_dict[k] = le.transform(y_dict[k]) # converts to int64
+            y_dict[k] = le.transform(y_dict[k][label]) # converts to int64
             if wide:
                 a = np.zeros((len(y_dict[k]), le.classes_.shape[0]), dtype=int)
                 a[np.arange(len(y_dict[k])), y_dict[k]] = 1
