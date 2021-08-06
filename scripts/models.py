@@ -184,7 +184,7 @@ class Inception(nn.Module):
         self.bottleneck = nn.Conv1d(in_channels, bottleneck, 1, padding='same') if bottleneck and in_channels > 1 else lambda x: x
         d_mts = bottleneck or in_channels # dimensionality of multivariate time-series
         conv_layers = []
-        kss = [kernel_size // (2**i) for i in range(3)]
+        kss = [kernel_size // (2**i) for i in range(3)] # 360 down to 5 min, 9 blocks?
         for i in range(len(kss)):
             conv_layers.append(
                 nn.Conv1d(d_mts, nb_filters, kernel_size=kss[i], padding='same')
