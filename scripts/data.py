@@ -10,6 +10,8 @@ import sys
 sys.path.append('/home/ngr/gdrive/wearables/scripts')
 import utils as wearutils
 
+import torch
+
 def pkldata(filepath='/home/ngr/gdrive/wearables/data/raw/MOD 1000 Woman Activity Data-20210707T213505Z-001/MOD 1000 Woman Activity Data',
             pkl_out=None):
 
@@ -793,6 +795,7 @@ def md2y(y_dict, label='GA', wide=False, verbose=False):
                 a[np.arange(len(y_dict[k])), y_dict[k]] = 1
                 y_dict[k] = a
         return y_dict, le.classes_
+
 
 
 if __name__ == '__main__':
