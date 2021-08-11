@@ -85,7 +85,9 @@ class InceptionTimeRegressor_trainer():
         if convert_to_numpy:
             output = output.detach().numpy()
             target = target.detach().numpy()
-        return mean_absolute_error(target, output)
+            return mean_absolute_error(target, output)
+        else:
+            return (output - target).abs().mean().item()
 
     def fit(self, verbose=True):
         '''Train model.
@@ -118,10 +120,10 @@ class InceptionTimeRegressor_trainer():
 
                 self.optimizer.zero_grad()
                 output = self.model(X_t)
-                loss = criterion(output, y)
+                loss = self.criterion(output.squeeze(), y)
                 loss.backward()
                 self.optimizer.step()
-                eval_metric = self.eval(output, y)
+                eval_metric = self.eval(output.squeeze(), y)
 
                 # track (change per set)
                 epoch_loss.append(loss.item())
@@ -134,12 +136,9 @@ class InceptionTimeRegressor_trainer():
                 X_t = X_t.to(self.device)
                 y = y.to(self.device)
 
-                self.optimizer.zero_grad()
                 output = self.model(X_t)
-                loss = criterion(output, y)
-                loss.backward()
-                self.optimizer.step()
-                eval_metric = self.eval(output, y)
+                loss = self.criterion(output.squeeze(), y)
+                eval_metric = self.eval(output.squeeze(), y)
 
                 # track (change per set)
                 epoch_loss_val.append(loss.item())
@@ -152,12 +151,12 @@ class InceptionTimeRegressor_trainer():
             total_eval_val.append(np.mean(epoch_eval_val))
 
             if verbose:
-                print('Epoch {}\t<loss>={:.4f}\t<eval>={:.4f}\t<loss_val>={:.4f}\t<eval_val>={:.4f}\tin {:.0f}-s\telapsed: {:.1f}-min'.format(epoch,total_loss[-1], total_eval[-1], total_loss_val[-1], total_eval_val[-1], timer.stop(), timer.sum()/60))
+                print('Epoch {}\t<loss>={:.4f}\t<eval>={:.4f}\t<loss_val>={:.4f}\t<eval_val>={:.4f}\tin {:.0f}-s\telapsed: {:.1f}-min'.format(epoch,total_loss[-1], total_eval[-1], total_loss_val[-1], total_eval_val[-1], self.timer.stop(), self.timer.sum()/60))
 
             # save to model_zoo
             if total_loss_val[-1] < best:
                 if self.model_path is not None:
-                    torch.save(model.state_dict(), os.path.join(self.model_path, '{}-{}{}.pkl'.format(epoch, self.exp, self.trial)))
+                    torch.save(self.model.state_dict(), os.path.join(self.model_path, '{}-{}{}.pkl'.format(epoch, self.exp, self.trial)))
                 best = total_loss_val[-1]
                 best_epoch = epoch
                 bad_counter = 0
@@ -166,22 +165,95 @@ class InceptionTimeRegressor_trainer():
 
             if self.patience is not None:
                 if bad_counter == self.patience:
-                    files = glob.glob(os.path.join(model_savepath, '*-{}{}.pkl'.format(self.exp, self.trial)))
-                    for file in files:
-                        epoch_nb = int(os.path.split(file)[1].split('-{}{}.pkl'.format(self.exp, self.trial))[0])
-                        if epoch_nb != best_epoch:
-                            os.remove(file)
+                    if self.model_path is not None:
+                        files = glob.glob(os.path.join(self.model_path, '*-{}{}.pkl'.format(self.exp, self.trial)))
+                        for file in files:
+                            epoch_nb = int(os.path.split(file)[1].split('-{}{}.pkl'.format(self.exp, self.trial))[0])
+                            if epoch_nb != best_epoch:
+                                os.remove(file)
                     break
             elif epoch==(n_epochs-1):
                 if self.model_path is not None and bad_counter==0:
                     # save last one if  last is best, otherwise, keep best so far
-                    torch.save(model.state_dict(), os.path.join(self.model_path, '{}-{}{}.pkl'.format(epoch, self.exp, self.trial)))
+                    torch.save(self.model.state_dict(), os.path.join(self.model_path, '{}-{}{}.pkl'.format(epoch, self.exp, self.trial)))
 
         # track for later eval
         self.best_epoch = best_epoch
+        self.total_loss = total_loss
+        self.total_eval = total_eval
+        self.total_loss_val = total_loss_val
+        self.total_eval_val = total_eval_val
         print('\nOptimization finished!\tBest epoch: {}\tMax epoch: {}'.format(best_epoch, epoch))
         print('  exp: {}\ttrial: {}'.format(self.exp, self.trial))
         print('  training time elapsed: {}-h:m:s\n'.format(str(datetime.timedelta(seconds=timer.sum()))))
 
-    def eval_test():
-        return None
+    def eval_test(self):
+        '''Loads best model or existing one (from last epoch)
+
+        NOTE: to trigger last epoch being used, also turn off patience
+
+        Returns:
+          (dict): with results dataframe and output with indexing for metadata
+        '''
+        device = torch.device('cpu') # differs from self.device here
+        self.model.to(device)
+        if self.model_path is not None:
+            self.model.load_state_dict(torch.load(os.path.join(self.model_path, '{}-{}{}.pkl'.format(self.best_epoch, self.exp, self.trial)),
+                                             map_location=device))
+        # test
+        self.model.eval()
+        for i, batch in enumerate(self.dataloaders['test']):
+            X_t, y, idx = batch['X'], batch['y'], batch['idx']
+            X_t = X_t.to(device)
+            y = y.to(device)
+
+            output = self.model(X_t)
+            if i==0:
+                y_total = y
+                idx_total = idx
+                yhat_total = output.squeeze()
+            else:
+                y_total = torch.cat((y_total, y), dim=0)
+                idx_total = torch.cat((idx_total, idx), dim=0)
+                yhat_total = torch.cat((yhat_total, output.squeeze()), dim=0)
+        loss_test = self.criterion(yhat_total, y_total).item()
+        eval_test = self.eval(yhat_total, y_total)
+
+        print('Test set eval:')
+        print('  bst epoch: {}\n  <loss_test>={:.4f}\n  acc_test   ={:.4f}'.format(self.best_epoch, loss_test, eval_test))
+
+        # store to results file
+        results_df = pd.DataFrame({'exp':self.exp,
+                                   'trial':self.trial,
+                                   'eval_test':eval_test,
+                                   'loss_test':loss_test,
+                                   'bst_epoch':self.best_epoch,
+                                   'loss_train':None,
+                                   'eval_train':None,
+                                   'loss_val':None,
+                                   'eval_val':None,},
+                                  index=[0])
+        results_df.at[0, 'loss_train'] = self.total_loss
+        results_df.at[0, 'eval_train'] = self.total_eval
+        results_df.at[0, 'loss_val'] = self.total_loss_val
+        results_df.at[0, 'eval_val'] = self.total_eval_val
+
+        # save
+        if self.out_file is not None:
+            if os.path.exists(self.out_file):
+                results_df.to_csv(self.out_file, mode='a', header=False)
+            else:
+                results_df.to_csv(self.out_file)
+
+        return {'md_idx':idx_total, 'y':y_total, 'yhat':yhat_total, 'results':results_df}
+
+
+def chk_trainer():
+    import sys
+    sys.path.append('/home/ngr/gdrive/wearables/scripts/')
+    import train as weartrain
+    trainer = weartrain.InceptionTimeRegressor_trainer(model_path='/home/ngr/gdrive/wearables/model_zoo',
+                                                       patience=None, n_epochs=1,
+                                                       batch_size=64)
+    trainer.fit()
+    res = trainer.eval_test()

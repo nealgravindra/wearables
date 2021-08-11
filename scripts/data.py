@@ -817,7 +817,7 @@ class actigraphy_dataset(torch.utils.data.Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, idx):
-        return {'X':torch.tensor(self.X[idx, :]),
+        return {'X':torch.tensor(self.X[idx, :].reshape(1, -1)),
                 'y':torch.tensor(self.y[idx]),
                 'idx':idx}
 
