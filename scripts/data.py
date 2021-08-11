@@ -7,7 +7,8 @@ import warnings
 import time
 
 import sys
-sys.path.append('/home/ngr/gdrive/wearables/scripts')
+sfp = '/home/ngr4/project/wearables/scripts/' # '/home/ngr/gdrive/wearables/scripts/' OR '/home/ngr4/project/wearables/scripts/'
+sys.path.append(sfp)
 import utils as wearutils
 
 import torch

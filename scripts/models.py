@@ -88,8 +88,8 @@ class InceptionTime(nn.Module):
     '''Modified for regression.
 
     '''
-    def __init__(self, in_channels, out_channels, bottleneck=16, kernel_size=60,
-                 nb_filters=32, residual=True, nb_layers=6):
+    def __init__(self, in_channels, out_channels, bottleneck=8, kernel_size=60,
+                 nb_filters=16, residual=True, nb_layers=6):
         super().__init__()
         self.block = InceptionBlock(in_channels, bottleneck=bottleneck,
                                     kernel_size=kernel_size, nb_filters=nb_filters,

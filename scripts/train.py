@@ -1,20 +1,25 @@
 import os
 import sys
-sys.path.append('/home/ngr/gdrive/wearables/scripts/')
+sfp = '/home/ngr4/project/wearables/scripts/' # '/home/ngr/gdrive/wearables/scripts/' OR '/home/ngr4/project/wearables/scripts/'
+sys.path.append(sfp)
 import models as wearmodels
 import data as weardata
 import utils as wearutils
+import glob
 
 import torch
 import torch.nn as nn
 from sklearn.metrics import mean_absolute_error
 import numpy as np
+import datetime
+import pandas as pd
 
 class InceptionTimeRegressor_trainer():
     def __init__(self, exp='InceptionTime_GA', trial=0,
                  model_path=None, out_file=None, target='GA',
                  lr=0.001, batch_size=32, n_epochs=500, patience=100,
-                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+                 use_multi_gpus=False):
         '''
         TODO (ngr):
           - (enhancement) allow for classification or regression baswed on target.
@@ -36,11 +41,16 @@ class InceptionTimeRegressor_trainer():
         self.patience = patience
         self.n_epochs = n_epochs
         self.device = device
+        self.use_multi_gpus = use_multi_gpus
         if device.type == 'cuda':
             torch.cuda.empty_cache()
 
         self.dataloaders = self.get_dataloaders()
         self.model = wearmodels.InceptionTime(1, 1) # NOTE: change output to n_classes
+        if self.use_multi_gpus:
+            selfmodel = nn.DataParallel(self.model) # DEPCREATED, see: https://pytorch.org/docs/master/notes/cuda.html#best-practices
+#             torch.distributed.init_process_group(backend='nccl', world_size=torch.cuda.device_count())
+#             self.model = nn.parallel.DistributedDataParallel(self.model)
         self.model = self.model.to(self.device)
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(),
@@ -49,7 +59,8 @@ class InceptionTimeRegressor_trainer():
 
 
 
-    def get_dataloaders(self, return_md=True):
+    def get_dataloaders(self, return_md=True,
+                        file='/home/ngr4/project/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl'):
         '''Get train/val/test data.
 
         TODO (ngr):
@@ -64,7 +75,7 @@ class InceptionTimeRegressor_trainer():
           - need file to be specified in weardata.ppdata_frompkl(file) where
             file='*/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl'
         '''
-        data = weardata.ppdata_frompkl()
+        data = weardata.ppdata_frompkl(file=file)
         y_dict, target_id = weardata.md2y({k:data[k] for k in data.keys() if 'X' not in k}, label=self.target, wide=True)
 
         data_train = weardata.actigraphy_dataset(data['X_train'], y_dict['Y_train'])
@@ -81,13 +92,20 @@ class InceptionTimeRegressor_trainer():
         else:
             return {'train':dl_train, 'val':dl_val, 'test':dl_test}
 
-    def eval(self, output, target, convert_to_numpy=False):
+    def performance_eval(self, output, target, convert_to_numpy=False):
         if convert_to_numpy:
             output = output.detach().numpy()
             target = target.detach().numpy()
             return mean_absolute_error(target, output)
         else:
             return (output - target).abs().mean().item()
+        
+    def clear_modelpkls(self, best_epoch):
+        files = glob.glob(os.path.join(self.model_path, '*-{}{}.pkl'.format(self.exp, self.trial)))
+        for file in files:
+            epoch_nb = int(os.path.split(file)[1].split('-{}{}.pkl'.format(self.exp, self.trial))[0])
+            if epoch_nb != best_epoch:
+                os.remove(file)
 
     def fit(self, verbose=True):
         '''Train model.
@@ -103,6 +121,7 @@ class InceptionTimeRegressor_trainer():
 
         print('\nStarting training after {:.0f}-s of setup...'.format(self.timer.stop()))
         for epoch in range(self.n_epochs):
+            print(epoch)
             self.timer.start()
             self.model.train()
 
@@ -123,7 +142,7 @@ class InceptionTimeRegressor_trainer():
                 loss = self.criterion(output.squeeze(), y)
                 loss.backward()
                 self.optimizer.step()
-                eval_metric = self.eval(output.squeeze(), y)
+                eval_metric = self.performance_eval(output.squeeze(), y)
 
                 # track (change per set)
                 epoch_loss.append(loss.item())
@@ -138,7 +157,7 @@ class InceptionTimeRegressor_trainer():
 
                 output = self.model(X_t)
                 loss = self.criterion(output.squeeze(), y)
-                eval_metric = self.eval(output.squeeze(), y)
+                eval_metric = self.performance_eval(output.squeeze(), y)
 
                 # track (change per set)
                 epoch_loss_val.append(loss.item())
@@ -159,6 +178,7 @@ class InceptionTimeRegressor_trainer():
                     torch.save(self.model.state_dict(), os.path.join(self.model_path, '{}-{}{}.pkl'.format(epoch, self.exp, self.trial)))
                 best = total_loss_val[-1]
                 best_epoch = epoch
+                self.clear_modelpkls(best_epoch)
                 bad_counter = 0
             else:
                 bad_counter += 1
@@ -166,13 +186,9 @@ class InceptionTimeRegressor_trainer():
             if self.patience is not None:
                 if bad_counter == self.patience:
                     if self.model_path is not None:
-                        files = glob.glob(os.path.join(self.model_path, '*-{}{}.pkl'.format(self.exp, self.trial)))
-                        for file in files:
-                            epoch_nb = int(os.path.split(file)[1].split('-{}{}.pkl'.format(self.exp, self.trial))[0])
-                            if epoch_nb != best_epoch:
-                                os.remove(file)
+                        self.clear_modelpkls(best_epoch)
                     break
-            elif epoch==(n_epochs-1):
+            elif epoch==(self.n_epochs-1):
                 if self.model_path is not None and bad_counter==0:
                     # save last one if  last is best, otherwise, keep best so far
                     torch.save(self.model.state_dict(), os.path.join(self.model_path, '{}-{}{}.pkl'.format(epoch, self.exp, self.trial)))
@@ -183,11 +199,12 @@ class InceptionTimeRegressor_trainer():
         self.total_eval = total_eval
         self.total_loss_val = total_loss_val
         self.total_eval_val = total_eval_val
+        
         print('\nOptimization finished!\tBest epoch: {}\tMax epoch: {}'.format(best_epoch, epoch))
         print('  exp: {}\ttrial: {}'.format(self.exp, self.trial))
-        print('  training time elapsed: {}-h:m:s\n'.format(str(datetime.timedelta(seconds=timer.sum()))))
+        print('  training time elapsed: {}-h:m:s\n'.format(str(datetime.timedelta(seconds=self.timer.sum()))))
 
-    def eval_test(self):
+    def eval_test(self, modelpkl=None, eval_on_cpu=False):
         '''Loads best model or existing one (from last epoch)
 
         NOTE: to trigger last epoch being used, also turn off patience
@@ -195,11 +212,18 @@ class InceptionTimeRegressor_trainer():
         Returns:
           (dict): with results dataframe and output with indexing for metadata
         '''
-        device = torch.device('cpu') # differs from self.device here
-        self.model.to(device)
-        if self.model_path is not None:
+        if eval_on_cpu:
+            device = torch.device('cpu') 
+            self.model.to(device)
+        else:
+            device = self.device
+        if self.model_path is not None and modelpkl is None:
             self.model.load_state_dict(torch.load(os.path.join(self.model_path, '{}-{}{}.pkl'.format(self.best_epoch, self.exp, self.trial)),
                                              map_location=device))
+        elif modelpkl is not None:
+            # load stored model
+            self.model.load_state_dict(torch.load(modelpkl, map_location=device))
+            
         # test
         self.model.eval()
         for i, batch in enumerate(self.dataloaders['test']):
@@ -209,15 +233,15 @@ class InceptionTimeRegressor_trainer():
 
             output = self.model(X_t)
             if i==0:
-                y_total = y
-                idx_total = idx
-                yhat_total = output.squeeze()
+                y_total = y.detach().cpu() 
+                idx_total = idx.detach().cpu()
+                yhat_total = output.squeeze().detach().cpu()
             else:
-                y_total = torch.cat((y_total, y), dim=0)
-                idx_total = torch.cat((idx_total, idx), dim=0)
-                yhat_total = torch.cat((yhat_total, output.squeeze()), dim=0)
+                y_total = torch.cat((y_total, y.detach().cpu()), dim=0)
+                idx_total = torch.cat((idx_total, idx.detach().cpu()), dim=0)
+                yhat_total = torch.cat((yhat_total, output.squeeze().detach().cpu()), dim=0)
         loss_test = self.criterion(yhat_total, y_total).item()
-        eval_test = self.eval(yhat_total, y_total)
+        eval_test = self.performance_eval(yhat_total, y_total)
 
         print('Test set eval:')
         print('  bst epoch: {}\n  <loss_test>={:.4f}\n  acc_test   ={:.4f}'.format(self.best_epoch, loss_test, eval_test))
@@ -249,11 +273,9 @@ class InceptionTimeRegressor_trainer():
 
 
 def chk_trainer():
-    import sys
-    sys.path.append('/home/ngr/gdrive/wearables/scripts/')
-    import train as weartrain
-    trainer = weartrain.InceptionTimeRegressor_trainer(model_path='/home/ngr/gdrive/wearables/model_zoo',
-                                                       patience=None, n_epochs=1,
-                                                       batch_size=64)
+    trainer = InceptionTimeRegressor_trainer(model_path='/home/ngr4/project/wearables/model_zoo',
+                                             patience=None, n_epochs=1,
+                                             batch_size=32)
     trainer.fit()
     res = trainer.eval_test()
+    return res
