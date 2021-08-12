@@ -223,6 +223,12 @@ class InceptionTimeRegressor_trainer():
         elif modelpkl is not None:
             # load stored model
             self.model.load_state_dict(torch.load(modelpkl, map_location=device))
+            # set these to None
+            self.best_epoch = None
+            self.total_loss = None
+            self.total_eval = None
+            self.total_loss_val = None
+            self.total_eval_val = None
             
         # test
         self.model.eval()

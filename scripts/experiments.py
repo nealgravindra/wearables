@@ -112,10 +112,10 @@ def pred_all(n_trials=1, model_class='RF', out_file=None, save_train_data=None):
         results.to_csv(out_file)
     return results
 
-def InceptionTimeRegressor(trial):
+def InceptionTimeRegressor(trial, patience=200):
     trainer = weartrain.InceptionTimeRegressor_trainer(model_path='/home/ngr4/project/wearables/model_zoo',
                                                        trial=trial, out_file='/home/ngr4/project/wearables/results/InceptionTimeRegressor_v1_GA.csv',
-                                                       patience=200, n_epochs=2000,
+                                                       patience=patience, n_epochs=2000,
                                                        batch_size=32)
     trainer.fit()
     return trainer.eval_test()
@@ -142,5 +142,7 @@ if __name__ == '__main__':
     elif exp == 'InceptionTime_dev':
         res = InceptionTimeRegressor(trial=trial)
         print('Finished exp {}, trial {}'.format(exp, trial))
+    elif exp == 'InceptionTime_nopatience':
+        res = InceptionTimeRegressor(trial=trial, patience=None)
     else:
         print('Program to run experiment does not exist. Not implemented.')
