@@ -204,7 +204,7 @@ class InceptionTimeRegressor_trainer():
         print('  exp: {}\ttrial: {}'.format(self.exp, self.trial))
         print('  training time elapsed: {}-h:m:s\n'.format(str(datetime.timedelta(seconds=self.timer.sum()))))
 
-    def eval_test(self, modelpkl=None, eval_on_cpu=False):
+    def eval_test(self, modelpkl=None, eval_on_cpu=False, eval_trainset=False):
         '''Loads best model or existing one (from last epoch)
 
         NOTE: to trigger last epoch being used, also turn off patience
@@ -232,7 +232,11 @@ class InceptionTimeRegressor_trainer():
             
         # test
         self.model.eval()
-        for i, batch in enumerate(self.dataloaders['test']):
+        if eval_trainset:
+            dataloader = self.dataloaders['train']
+        else:
+            dataloader = self.dataloaders['test']
+        for i, batch in enumerate(dataloader):
             X_t, y, idx = batch['X'], batch['y'], batch['idx']
             X_t = X_t.to(device)
             y = y.to(device)
@@ -249,8 +253,13 @@ class InceptionTimeRegressor_trainer():
         loss_test = self.criterion(yhat_total, y_total).item()
         eval_test = self.performance_eval(yhat_total, y_total)
 
-        print('Test set eval:')
-        print('  bst epoch: {}\n  <loss_test>={:.4f}\n  acc_test   ={:.4f}'.format(self.best_epoch, loss_test, eval_test))
+        if eval_trainset:
+            dataset = 'train'
+        else:
+            dataset = 'test'
+        print('{} set eval:'.format(dataset))
+        print('  bst epoch: {}\n  <loss_{}>={:.4f}\n  eval_{}  ={:.4f}'.format(self.best_epoch, dataset,
+                                                                                 loss_test, dataset, eval_test))
 
         # store to results file
         results_df = pd.DataFrame({'exp':self.exp,
@@ -274,8 +283,15 @@ class InceptionTimeRegressor_trainer():
                 results_df.to_csv(self.out_file, mode='a', header=False)
             else:
                 results_df.to_csv(self.out_file)
+        
+        # merge metadata
+        md_merged = self.dataloaders['md_{}'.format(dataset)].reset_index().merge(
+            pd.DataFrame({'Absolute Error':(yhat_total-y_total).abs().numpy(),
+                          'yGA':y_total.numpy(), 
+                          'yhatGA':yhat_total.numpy()}, 
+                         index=idx_total.numpy()), left_index=True, right_index=True)
 
-        return {'md_idx':idx_total, 'y':y_total, 'yhat':yhat_total, 'results':results_df}
+        return {'md_idx':idx_total, 'y':y_total, 'yhat':yhat_total, 'results':results_df, 'md':md_merged}
 
 
 def chk_trainer():
