@@ -294,7 +294,7 @@ class InceptionTimeRegressor_trainer():
 class InceptionTime_trainer():
     def __init__(self, exp='InceptionTimev0.2', trial=0,
                  model_path=None, out_file=None, target='GA',
-                 lr=0.001, batch_size=32, n_epochs=500, patience=100,
+                 lr=0.001, batch_size=32, n_epochs=2000, patience=200,
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         '''
         TODO (ngr):

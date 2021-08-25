@@ -120,11 +120,44 @@ def InceptionTimeRegressor(trial, patience=200):
     trainer.fit()
     return trainer.eval_test()
 
+def InceptionTime_allmd(exp, trial, colnum):
+    # 104 targets
+    md_colnames = ['GA', 'age_enroll', 'marital', 'gestage_by', 'insur', 'ethnicity', 
+                   'race', 'bmi_1vis', 'prior_ptb_all','fullterm_births', 'surghx_none', 
+                   'alcohol', 'smoke', 'drugs', 'hypertension', 'pregestational_diabetes',
+                   'asthma_yes___1','asthma_yes___2', 'asthma_yes___3', 'asthma_yes___4', 
+                   'asthma_yes___5', 'asthma_yes___6', 'asthma_yes___7', 'asthma_yes___8', 
+                   'asthma_yes___9', 'asthma_yes___10','asthma_yes___13', 'asthma_yes___14', 
+                   'asthma_yes___15', 'asthma_yes___18', 'asthma_yes___19', 'asthma_yes___20', 
+                   'other_disease', 'gestational_diabetes', 'ghtn', 'preeclampsia', 'rh', 
+                   'corticosteroids', 'abuse', 'assist_repro', 'gyn_infection', 
+                   'maternal_del_weight', 'ptb_37wks', 'cbc_hct', 'cbc_wbc', 'cbc_plts',
+                   'cbc_mcv', 'art_ph', 'art_pco2', 'art_po2', 'art_excess', 'art_lactate', 
+                   'ven_ph', 'ven_pco2', 'ven_po2', 'ven_excess', 'ven_lactate', 'anes_type', 
+                   'epidural', 'deliv_mode', 'infant_wt', 'infant_length', 'head_circ', 
+                   'death_baby', 'neonatal_complication', 'ervisit', 'ppvisit_dx', 'education1', 
+                   'paidjob1', 'work_hrs1', 'income_annual1', 'income_support1', 'regular_period1', 
+                   'period_window1', 'menstrual_days1', 'bc_past1', 'bc_years1', 'months_noprego1', 
+                   'premature_birth1', 'stress3_1', 'workreg_1trim', 'choosesleep_1trim', 
+                   'slpwake_1trim', 'slp30_1trim', 'sleep_qual1', 'slpenergy1', 'sitting1', 
+                   'tv1', 'inactive1', 'passenger1', 'reset1', 'talking1', 'afterlunch1', 
+                   'cartraffic1','edinb1_1trim', 'edinb2_1trim', 'edinb3_1trim', 'edinb4_1trim', 
+                   'edinb5_1trim', 'edinb6_1trim', 'edinb7_1trim','edinb8_1trim', 'edinb9_1trim', 
+                   'edinb10_1trim']
+    trainer = weartrain.InceptionTime_trainer(exp=exp, trial=trial,
+                                              model_path='/home/ngr4/scratch60/wearables/model_zoo/', 
+                                              out_file='/home/ngr4/project/wearables/results/InceptionTimev0.2_allmd.csv',
+                                              target=md_colnames[colnum])
+    trainer.fit()
+    return trainer.eval_test()
+    
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp', type=str, help='Experiment to initiate')
     parser.add_argument('--trial', type=str, help='Relicate number')
+    parser.add_argument('--colnum', type=int, help='Column number to specify target from md')
 
     args = parser.parse_args()
     exp = args.exp
@@ -132,6 +165,8 @@ if __name__ == '__main__':
         trial = 0 # assume dev
     else:
         trial = args.trial
+    if args.colnum is not None:
+        colnum = args.colnum
 
     if exp == 'all_RF':
         results = pred_all(model_class='RF', out_file='/home/ngr/gdrive/wearables/results/all_RF_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')))
@@ -144,5 +179,8 @@ if __name__ == '__main__':
         print('Finished exp {}, trial {}'.format(exp, trial))
     elif exp == 'InceptionTime_nopatience':
         res = InceptionTimeRegressor(trial=trial, patience=None)
+    elif exp == 'InceptionTimev0.2_allmd':
+        res = InceptionTime_allmd(exp, trial, colnum)
+        print('Successfully finished exp {}, trial {} for target colnum {}'.format(exp, trial, colnum))
     else:
         print('Program to run experiment does not exist. Not implemented.')
