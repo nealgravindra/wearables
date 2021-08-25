@@ -89,8 +89,9 @@ class InceptionTime(nn.Module):
 
     '''
     def __init__(self, in_channels, out_channels, bottleneck=8, kernel_size=60,
-                 nb_filters=16, residual=True, nb_layers=6):
+                 nb_filters=16, residual=True, nb_layers=6, regression=True):
         super().__init__()
+        self.regression = regression
         self.block = InceptionBlock(in_channels, bottleneck=bottleneck,
                                     kernel_size=kernel_size, nb_filters=nb_filters,
                                     residual=residual, nb_layers=nb_layers)
@@ -101,6 +102,8 @@ class InceptionTime(nn.Module):
         x = self.block(x)
         x = self.gap(x).squeeze(-1)
         x = self.fc(x)
+        if not self.regression: # then classification
+            x = F.log_softmax(x, dim=1)
         return x
 
 def chk_InceptionTime():
@@ -111,9 +114,10 @@ def chk_InceptionTime():
     xt = torch.rand((N, Cin, L))
 
     # architecture
-    output = InceptionTime(1, 1)(xt)
-    print('Data shape: ({}, {})'.format(*xt.shape))
-    print('output shape: ({}, {})'.format(*output.shape))
+    output = InceptionTime(1, 3, regression=False)(xt)
+    print('Data shape: ', xt.shape)
+    print('output shape: ', output.shape)
+    return output
 
 if __name__ == '__main__':
     chk_InceptionTime()
