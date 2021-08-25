@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for i in {1}
+for ((i=1; i<=1; i++))
 do
   for j in {0..103}
     do

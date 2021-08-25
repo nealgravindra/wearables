@@ -294,7 +294,7 @@ class InceptionTimeRegressor_trainer():
 class InceptionTime_trainer():
     def __init__(self, exp='InceptionTimev0.2', trial=0,
                  model_path=None, out_file=None, target='GA',
-                 lr=0.001, batch_size=32, n_epochs=2000, patience=200,
+                 lr=0.001, batch_size=32, n_epochs=2000, patience=100,
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         '''
         TODO (ngr):
@@ -342,8 +342,8 @@ class InceptionTime_trainer():
         '''
         data = weardata.ppdata_frompkl(file=file)
         y_dict, target_id = weardata.md2y({k:data[k] for k in data.keys() if 'X' not in k}, label=self.target, wide=True)
-        self.tasktype = 'regression' if target_id=='regression' else 'classification'
-        self.out_dim = 1 if self.'tasktype'=='regression' else len(target_id)
+        self.tasktype = 'regression' if isinstance(target_id, str) else 'classification'
+        self.out_dim = 1 if self.tasktype=='regression' else len(target_id)
         self.target_id = target_id
 
         data_train = weardata.actigraphy_dataset(data['X_train'], y_dict['Y_train'])
@@ -367,9 +367,9 @@ class InceptionTime_trainer():
         else:
             # accuracy
             preds = output.max(1)[1].type_as(target)
-            correct = preds.eq(labels).double()
+            correct = preds.eq(target).double()
             correct = correct.sum()
-            return correct / len(labels)
+            return (correct / len(target)).item()
         
     def clear_modelpkls(self, best_epoch):
         files = glob.glob(os.path.join(self.model_path, '*-{}{}.pkl'.format(self.exp, self.trial)))
@@ -415,7 +415,7 @@ class InceptionTime_trainer():
                 loss = self.criterion(output, y)
                 loss.backward()
                 self.optimizer.step()
-                eval_metric = self.performance_eval(output, y)
+                eval_metric = self.eval_performance(output, y)
 
                 # track (change per set)
                 epoch_loss.append(loss.item())
@@ -432,7 +432,7 @@ class InceptionTime_trainer():
                 if self.tasktype == 'regression':
                     output = output.squeeze()
                 loss = self.criterion(output, y)
-                eval_metric = self.performance_eval(output, y)
+                eval_metric = self.eval_performance(output, y)
 
                 # track (change per set)
                 epoch_loss_val.append(loss.item())
@@ -528,7 +528,7 @@ class InceptionTime_trainer():
                 idx_total = torch.cat((idx_total, idx.detach().cpu()), dim=0)
                 yhat_total = torch.cat((yhat_total, output.detach().cpu()), dim=0)
         loss_test = self.criterion(yhat_total, y_total).item()
-        eval_test = self.performance_eval(yhat_total, y_total)
+        eval_test = self.eval_performance(yhat_total, y_total)
 
         if eval_trainset:
             dataset = 'train'
@@ -542,7 +542,7 @@ class InceptionTime_trainer():
         results_df = pd.DataFrame({'exp':self.exp,
                                    'trial':self.trial,
                                    'target':self.target,
-                                   'tasktype':self.regression, 
+                                   'tasktype':self.tasktype, 
                                    'eval_test':eval_test,
                                    'loss_test':loss_test,
                                    'bst_epoch':self.best_epoch,
@@ -565,14 +565,10 @@ class InceptionTime_trainer():
             else:
                 results_df.to_csv(self.out_file)
         
-        # merge metadata
-        md_merged = self.dataloaders['md_{}'.format(dataset)].reset_index().merge(
-            pd.DataFrame({'Absolute Error':(yhat_total-y_total).abs().numpy(),
-                          'yGA':y_total.numpy(), 
-                          'yhatGA':yhat_total.numpy()}, 
-                         index=idx_total.numpy()), left_index=True, right_index=True)
+        # return metadata for convenience
+        md = self.dataloaders['md_{}'.format(dataset)].reset_index()
 
-        return {'md_idx':idx_total, 'y':y_total, 'yhat':yhat_total, 'results':results_df, 'md':md_merged}
+        return {'md_idx':idx_total, 'y':y_total, 'yhat':yhat_total, 'results':results_df, 'md':md}
 
 
 def chk_trainer():
