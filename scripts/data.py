@@ -7,8 +7,11 @@ import warnings
 import time
 
 import sys
-sys.path.append('/home/ngr/gdrive/wearables/scripts')
+sfp = '/home/ngr4/project/wearables/scripts/' # '/home/ngr/gdrive/wearables/scripts/' OR '/home/ngr4/project/wearables/scripts/'
+sys.path.append(sfp)
 import utils as wearutils
+
+import torch
 
 def pkldata(filepath='/home/ngr/gdrive/wearables/data/raw/MOD 1000 Woman Activity Data-20210707T213505Z-001/MOD 1000 Woman Activity Data',
             pkl_out=None):
@@ -793,6 +796,32 @@ def md2y(y_dict, label='GA', wide=False, verbose=False):
                 a[np.arange(len(y_dict[k])), y_dict[k]] = 1
                 y_dict[k] = a
         return y_dict, le.classes_
+
+def ppdata_frompkl(file='/home/ngr/gdrive/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl'):
+    with open(file, 'rb') as f:
+        data = pickle.load(f)
+        f.close()
+    return data
+
+class actigraphy_dataset(torch.utils.data.Dataset):
+    def __init__(self, X, y_wide):
+        self.X = X
+        if y_wide.shape[0] != y_wide.size:
+            y_wide = wide2long(y_wide) # one-hot encoded to long
+        self.y = y_wide
+
+    def wide2long(self, y):
+        return np.argmax(y, 1)
+
+    def __len__(self):
+        assert self.X.shape[0] == self.y.shape[0], 'Data indices do NOT align'
+        return self.X.shape[0]
+
+    def __getitem__(self, idx):
+        return {'X':torch.tensor(self.X[idx, :].reshape(1, -1)),
+                'y':torch.tensor(self.y[idx]),
+                'idx':idx}
+
 
 
 if __name__ == '__main__':

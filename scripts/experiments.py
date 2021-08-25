@@ -8,12 +8,12 @@ import datetime
 
 
 import sys
-sys.path.append('/home/ngr/gdrive/wearables/scripts')
+sfp = '/home/ngr4/project/wearables/scripts/'
+sys.path.append(sfp)
 import data as weardata
 import utils as wearutils
+import train as weartrain
 
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 def pred_all(n_trials=1, model_class='RF', out_file=None, save_train_data=None):
     '''Predict GA and other vars in metadata with non-DL models.
@@ -112,13 +112,26 @@ def pred_all(n_trials=1, model_class='RF', out_file=None, save_train_data=None):
         results.to_csv(out_file)
     return results
 
+def InceptionTimeRegressor(trial, patience=200):
+    trainer = weartrain.InceptionTimeRegressor_trainer(model_path='/home/ngr4/project/wearables/model_zoo',
+                                                       trial=trial, out_file='/home/ngr4/project/wearables/results/InceptionTimeRegressor_v1_GA.csv',
+                                                       patience=patience, n_epochs=2000,
+                                                       batch_size=32)
+    trainer.fit()
+    return trainer.eval_test()
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp', type=str, help='Experiment to initiate')
+    parser.add_argument('--trial', type=str, help='Relicate number')
 
     args = parser.parse_args()
     exp = args.exp
+    if args.trial is None:
+        trial = 0 # assume dev
+    else:
+        trial = args.trial
 
     if exp == 'all_RF':
         results = pred_all(model_class='RF', out_file='/home/ngr/gdrive/wearables/results/all_RF_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')))
@@ -126,5 +139,10 @@ if __name__ == '__main__':
         results = pred_all(n_trials=10, model_class='knn',
                            out_file='/home/ngr/gdrive/wearables/results/all_knn_{}.csv'.format(datetime.datetime.now().strftime('%y%m%d')),
                            save_train_data='/home/ngr/gdrive/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest{}.pkl'.format(datetime.datetime.now().strftime('%y%m%d')))
+    elif exp == 'InceptionTime_dev':
+        res = InceptionTimeRegressor(trial=trial)
+        print('Finished exp {}, trial {}'.format(exp, trial))
+    elif exp == 'InceptionTime_nopatience':
+        res = InceptionTimeRegressor(trial=trial, patience=None)
     else:
         print('Program to run experiment does not exist. Not implemented.')

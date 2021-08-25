@@ -5,6 +5,8 @@ Experiments
           that yield the best single classification or regression results from a whole time-series
     - solution: compare SOTA methods for large data with KRR v. TimeSeriesRF v. knn w/DTW v. InceptionTime v. LSTM
           v. CNN v. MLP based with similar designs
+    - experiments:
+      - InceptionTime_dev: try n=3 trials to predict GA given 1wk activity monitoring data. Then, interpret one of these models
 2. interprability
     - problem: what metadata is useful and how to handle self-reported survey data. In particular, why are
           there 3 surveys, how to pair up survey date, etc.
