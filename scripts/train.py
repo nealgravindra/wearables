@@ -89,11 +89,10 @@ class InceptionTimeRegressor_trainer():
         else:
             return {'train':dl_train, 'val':dl_val, 'test':dl_test}
 
-    def performance_eval(self, output, target):
+    def performance_eval(self, output, target, convert_to_numpy=False):
         if convert_to_numpy:
             output = output.detach().numpy()
             target = target.detach().numpy()
-        
             return mean_absolute_error(target, output)
         else:
             return (output - target).abs().mean().item() 
