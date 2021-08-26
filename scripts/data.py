@@ -807,7 +807,7 @@ class actigraphy_dataset(torch.utils.data.Dataset):
     def __init__(self, X, y_wide):
         self.X = X
         if y_wide.shape[0] != y_wide.size:
-            y_wide = wide2long(y_wide) # one-hot encoded to long
+            y_wide = self.wide2long(y_wide) # one-hot encoded to long
         self.y = y_wide
 
     def wide2long(self, y):
