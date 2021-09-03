@@ -10,6 +10,7 @@ import glob
 import torch
 import torch.nn as nn
 from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import average_precision_score, r2_score
 import numpy as np
 import datetime
 import pandas as pd
@@ -359,16 +360,27 @@ class InceptionTime_trainer():
         else:
             return {'train':dl_train, 'val':dl_val, 'test':dl_test}
 
-    def eval_performance(self, output, target, convert_to_numpy=False):
-        if self.tasktype == 'regression':
+    def eval_performance(self, output, target, convert_to_numpy=False, eval_type=None):
+        if self.tasktype == 'regression' and eval_type is None:
             # MAE
             return (output - target).abs().mean().item()
-        else:
+        elif self.tasktype != 'regression' and eval_type is None:
             # accuracy
-            preds = output.max(1)[1].type_as(target)
+            preds = output.exp().max(1)[1].type_as(target)
             correct = preds.eq(target).double()
             correct = correct.sum()
             return (correct / len(target)).item()
+        elif self.tasktype == 'regression' and eval_type=='AP_R2':
+            return r2_score(target, output)
+        elif self.tasktype != 'regression' and eval_type=='AP_R2':
+            y_true = torch.zeros(target.shape[0], self.out_dim)
+            y_true[torch.arange(target.shape[0]), target] = 1.
+            aps = []
+            output = output.exp()
+            for i in range(self.out_dim):
+                aps.append(average_precision_score(y_true[:, i], output[:, i], average='micro'))
+            return np.nanmean(aps)
+            
         
     def clear_modelpkls(self, best_epoch):
         files = glob.glob(os.path.join(self.model_path, '*-{}{}.pkl'.format(self.exp, self.trial)))
@@ -478,7 +490,7 @@ class InceptionTime_trainer():
         print('  exp: {}\ttrial: {}'.format(self.exp, self.trial))
         print('  training time elapsed: {}-h:m:s\n'.format(str(datetime.timedelta(seconds=self.timer.sum()))))
 
-    def eval_test(self, modelpkl=None, eval_on_cpu=False, eval_trainset=False):
+    def eval_test(self, modelpkl=None, eval_on_cpu=False, eval_trainset=False, eval_type='AP_R2'):
         '''Loads best model or existing one (from last epoch)
 
         NOTE: to trigger last epoch being used, also turn off patience
@@ -527,7 +539,7 @@ class InceptionTime_trainer():
                 idx_total = torch.cat((idx_total, idx.detach().cpu()), dim=0)
                 yhat_total = torch.cat((yhat_total, output.detach().cpu()), dim=0)
         loss_test = self.criterion(yhat_total, y_total).item()
-        eval_test = self.eval_performance(yhat_total, y_total)
+        eval_test = self.eval_performance(yhat_total, y_total, eval_type=eval_type)
 
         if eval_trainset:
             dataset = 'train'
