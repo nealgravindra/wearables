@@ -10,7 +10,9 @@ import glob
 import torch
 import torch.nn as nn
 from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import average_precision_score, r2_score
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import r2_score
+from sklearn.metrics import explained_variance_score
 import numpy as np
 import datetime
 import pandas as pd
@@ -370,9 +372,9 @@ class InceptionTime_trainer():
             correct = preds.eq(target).double()
             correct = correct.sum()
             return (correct / len(target)).item()
-        elif self.tasktype == 'regression' and eval_type=='AP_R2':
+        elif self.tasktype == 'regression' and eval_type.split('_')[1]=='R2':
             return r2_score(target, output)
-        elif self.tasktype != 'regression' and eval_type=='AP_R2':
+        elif self.tasktype != 'regression' and eval_type.split('_')[0]=='AP':
             y_true = torch.zeros(target.shape[0], self.out_dim)
             y_true[torch.arange(target.shape[0]), target] = 1.
             aps = []
@@ -380,6 +382,16 @@ class InceptionTime_trainer():
             for i in range(self.out_dim):
                 aps.append(average_precision_score(y_true[:, i], output[:, i], average='micro'))
             return np.nanmean(aps)
+        elif self.tasktype != 'regression' and eval_type.split('_')[0]=='AUPRC':
+            # define positive class as minority class, as in val set, similar to testing (majority are neg., want to be precise and sensitive when get a signal)
+            
+        elif self.tasktype == 'regression' and eval_type.split('_')[1]=='ExplainedVar':
+            return explained_variance_score(target, output)
+        else:
+            import warnings
+            warnings.warn('Valid evaluation metric was not specified.')
+            return None
+            
             
         
     def clear_modelpkls(self, best_epoch):
@@ -490,7 +502,7 @@ class InceptionTime_trainer():
         print('  exp: {}\ttrial: {}'.format(self.exp, self.trial))
         print('  training time elapsed: {}-h:m:s\n'.format(str(datetime.timedelta(seconds=self.timer.sum()))))
 
-    def eval_test(self, modelpkl=None, eval_on_cpu=False, eval_trainset=False, eval_type='AP_R2'):
+    def eval_test(self, modelpkl=None, eval_on_cpu=False, eval_trainset=False, eval_type='AP_R2', verbose=True):
         '''Loads best model or existing one (from last epoch)
 
         NOTE: to trigger last epoch being used, also turn off patience
@@ -545,9 +557,10 @@ class InceptionTime_trainer():
             dataset = 'train'
         else:
             dataset = 'test'
-        print('{} set eval:'.format(dataset))
-        print('  bst epoch: {}\n  <loss_{}>={:.4f}\n  eval_{}  ={:.4f}'.format(self.best_epoch, dataset,
-                                                                                 loss_test, dataset, eval_test))
+        if verbose:
+            print('{} set eval:'.format(dataset))
+            print('  bst epoch: {}\n  <loss_{}>={:.4f}\n  eval_{}  ={:.4f}'.format(self.best_epoch, dataset,
+                                                                                     loss_test, dataset, eval_test))
 
         # store to results file
         results_df = pd.DataFrame({'exp':self.exp,
