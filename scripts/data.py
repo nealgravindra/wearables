@@ -803,6 +803,9 @@ def ppdata_frompkl(file='/home/ngr/gdrive/wearables/data/processed/datapkl_Xacti
         f.close()
     return data
 
+def ppdata_farnam():
+    return ppdata_frompkl(file='/home/ngr4/project/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl')
+
 class actigraphy_dataset(torch.utils.data.Dataset):
     def __init__(self, X, y_wide):
         self.X = X

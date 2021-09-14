@@ -152,6 +152,14 @@ def InceptionTime_allmd(exp, trial, colnum):
     return trainer.eval_test()
     
 
+def pred_death(trial):
+    target = 'death_baby'
+    trainer = weartrain.InceptionTime_trainer(exp='IT_death', trial=trial,
+                                              model_path='/home/ngr4/project/wearables/model_zoo',
+                                              out_file='/home/ngr4/project/wearables/results/IT_death.csv', target=target)
+    trainer.fit()
+    return trainer.eval_test()
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
@@ -182,5 +190,7 @@ if __name__ == '__main__':
     elif exp == 'InceptionTimev0.2_allmd':
         res = InceptionTime_allmd(exp, trial, colnum)
         print('Successfully finished exp {}, trial {} for target colnum {}'.format(exp, trial, colnum))
+    elif exp == 'IT_death':
+        res = pred_death(trial)
     else:
         print('Program to run experiment does not exist. Not implemented.')

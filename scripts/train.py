@@ -10,6 +10,9 @@ import glob
 import torch
 import torch.nn as nn
 from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import r2_score
+from sklearn.metrics import explained_variance_score
 import numpy as np
 import datetime
 import pandas as pd
@@ -359,16 +362,37 @@ class InceptionTime_trainer():
         else:
             return {'train':dl_train, 'val':dl_val, 'test':dl_test}
 
-    def eval_performance(self, output, target, convert_to_numpy=False):
-        if self.tasktype == 'regression':
+    def eval_performance(self, output, target, convert_to_numpy=False, eval_type=None):
+        if self.tasktype == 'regression' and eval_type is None:
             # MAE
             return (output - target).abs().mean().item()
-        else:
+        elif self.tasktype != 'regression' and eval_type is None:
             # accuracy
-            preds = output.max(1)[1].type_as(target)
+            preds = output.exp().max(1)[1].type_as(target)
             correct = preds.eq(target).double()
             correct = correct.sum()
             return (correct / len(target)).item()
+        elif self.tasktype == 'regression' and eval_type.split('_')[1]=='R2':
+            return r2_score(target, output)
+        elif self.tasktype != 'regression' and eval_type.split('_')[0]=='AP':
+            y_true = torch.zeros(target.shape[0], self.out_dim)
+            y_true[torch.arange(target.shape[0]), target] = 1.
+            aps = []
+            output = output.exp()
+            for i in range(self.out_dim):
+                aps.append(average_precision_score(y_true[:, i], output[:, i], average='micro'))
+            return np.nanmean(aps)
+        elif self.tasktype != 'regression' and eval_type.split('_')[0]=='AUPRC':
+            # define positive class as minority class, as in val set, similar to testing (majority are neg., want to be precise and sensitive when get a signal)
+            
+        elif self.tasktype == 'regression' and eval_type.split('_')[1]=='ExplainedVar':
+            return explained_variance_score(target, output)
+        else:
+            import warnings
+            warnings.warn('Valid evaluation metric was not specified.')
+            return None
+            
+            
         
     def clear_modelpkls(self, best_epoch):
         files = glob.glob(os.path.join(self.model_path, '*-{}{}.pkl'.format(self.exp, self.trial)))
@@ -478,7 +502,7 @@ class InceptionTime_trainer():
         print('  exp: {}\ttrial: {}'.format(self.exp, self.trial))
         print('  training time elapsed: {}-h:m:s\n'.format(str(datetime.timedelta(seconds=self.timer.sum()))))
 
-    def eval_test(self, modelpkl=None, eval_on_cpu=False, eval_trainset=False):
+    def eval_test(self, modelpkl=None, eval_on_cpu=False, eval_trainset=False, eval_type='AP_R2', verbose=True):
         '''Loads best model or existing one (from last epoch)
 
         NOTE: to trigger last epoch being used, also turn off patience
@@ -527,15 +551,16 @@ class InceptionTime_trainer():
                 idx_total = torch.cat((idx_total, idx.detach().cpu()), dim=0)
                 yhat_total = torch.cat((yhat_total, output.detach().cpu()), dim=0)
         loss_test = self.criterion(yhat_total, y_total).item()
-        eval_test = self.eval_performance(yhat_total, y_total)
+        eval_test = self.eval_performance(yhat_total, y_total, eval_type=eval_type)
 
         if eval_trainset:
             dataset = 'train'
         else:
             dataset = 'test'
-        print('{} set eval:'.format(dataset))
-        print('  bst epoch: {}\n  <loss_{}>={:.4f}\n  eval_{}  ={:.4f}'.format(self.best_epoch, dataset,
-                                                                                 loss_test, dataset, eval_test))
+        if verbose:
+            print('{} set eval:'.format(dataset))
+            print('  bst epoch: {}\n  <loss_{}>={:.4f}\n  eval_{}  ={:.4f}'.format(self.best_epoch, dataset,
+                                                                                     loss_test, dataset, eval_test))
 
         # store to results file
         results_df = pd.DataFrame({'exp':self.exp,
