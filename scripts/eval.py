@@ -40,7 +40,15 @@ class eval_evalmetric():
         self.eval = {}
 
     def eval_metric(self, target, output):
-        
+       '''AU-PRC for multi-class or binary classification
+       '''
+       precision = dict()
+       recall = dict()
+       auprc = dict()
+       for i in range(self.n_classes):
+           precision[i], recall[i] = sklmetrics.precision_recall_curve(target[:, i], output[:, i])
+           auprc[i] = sklmetrics.auc(precision[i], recall[i])
+           # HERE
 
     def get_X(self):
         return None
@@ -58,13 +66,13 @@ class eval_evalmetric():
     '''
     if not isinstance(p_minority, list) or len(p_minority)==1:
         p_majority = 1 - p_minority
-        n_classes = 1
+        self.n_classes = 1
         cat_dist = torch.distributions.categorical.Categorical(probs=torch.tensor([p_majority, p_minorit\
 y]))
     else:
         assert sum(p_minority)==1, 'Multi-class classification requires p sums to 1.'
         cat_dist = torch.distributions.categorical.Categorical(probs=torch.tensor(p_minority))
-        n_classes = len(p_minority)
+        self.n_classes = len(p_minority)
 
     y_true = cat_dist.sample((n_samples,))
     y_true_wide = torch.zeros(n_samples, n_classes)
