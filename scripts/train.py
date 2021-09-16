@@ -384,6 +384,7 @@ class InceptionTime_trainer():
             return np.nanmean(aps)
         elif self.tasktype != 'regression' and eval_type.split('_')[0]=='AUPRC':
             # define positive class as minority class, as in val set, similar to testing (majority are neg., want to be precise and sensitive when get a signal)
+            return NotImplemented 
             
         elif self.tasktype == 'regression' and eval_type.split('_')[1]=='ExplainedVar':
             return explained_variance_score(target, output)
