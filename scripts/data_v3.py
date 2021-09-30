@@ -361,7 +361,7 @@ def load_pp_rawdata(pp_pkl_out='/home/ngr/gdrive/wearables/data/processed/pp_GAa
 
     ## get data
     ppdata = ppdata_fromdict2dict(data, out_file='/home/ngr/gdrive/wearables/data/processed/ppdata_1wk.pkl')
-    datalens = weardata.chk_datashape(ppdata)
+    datalens = chk_datashape(ppdata)
 
     return ppdata
 
@@ -545,15 +545,16 @@ def pp_metadata(md, voi, pids2keep=None, out_file=None):
             f.close()
     return ppmd
 
-def load_data_md(datapkl_file='/home/ngr/gdrive/wearables/data/processed/ppdata_1wk.pkl',
-                 md_file='/home/ngr/gdrive/wearables/data/raw/MOD_Data_2021.csv'):
+def load_data_md(dfp, onehot_md=False):
     '''Load filtered cohort and metadata columns by PID for modeling.
 
     NOTE:
-      - updated 21.08.01
       - the two files indicated are the minimal package for data transfer
     '''
+    datapkl_file=os.path.join(dfp, 'ppdata_1wk.pkl')
+    md_file = os.path.join(dfp, 'MOD_Data_2021.csv')
     data = load_ppdata(filepath=datapkl_file)
+    
     # load metadata
     md = load_rawmd(filepath=md_file)
     ppdata, md = md_data_keymatch(data, md)
@@ -678,10 +679,13 @@ def load_data_md(datapkl_file='/home/ngr/gdrive/wearables/data/processed/ppdata_
             ## sleep diary
             }
     ppmd = pp_metadata(md, voi)
+    
+    if onehot_md:
+        raise NotImplementedError 
     return ppdata, ppmd
 
 # train/test data with user specified label
-def split_by_pid(X, df, val=False, prop_train=0.8):
+def split_by_pid(X, df, prop_train=0.8):
     '''Split data by patient ID.
     '''
     pids = np.unique(df['pid'].to_list())
@@ -689,17 +693,13 @@ def split_by_pid(X, df, val=False, prop_train=0.8):
     test_pids = [i for i in pids if i not in train_pids]
     train_idx = np.where(df['pid'].isin(train_pids))[0] #df.loc[df['pid'].isin(train_pids), :].index.to_list()
     X_train, y_train = X[train_idx, :], df.iloc[train_idx, :]
-    if val:
-        val_pids = np.random.choice(test_pids, int(len(test_pids)*0.5), replace=False)
-        val_idx = np.where(df['pid'].isin(val_pids))[0] #df.loc[df['pid'].isin(val_pids), :].index.to_list()
-        X_val, y_val = X[val_idx, :], df.iloc[val_idx, :]
-        test_pids = [i for i in test_pids if i not in val_pids]
-    test_idx = np.where(df['pid'].isin(test_pids))[0] #df.loc[df['pid'].isin(test_pids), :].index.to_list()
+    val_pids = np.random.choice(test_pids, int(len(test_pids)*0.5), replace=False)
+    val_idx = np.where(df['pid'].isin(val_pids))[0]
+    X_val, y_val = X[val_idx, :], df.iloc[val_idx, :]
+    test_pids = [i for i in test_pids if i not in val_pids]
+    test_idx = np.where(df['pid'].isin(test_pids))[0] 
     X_test, y_test = X[test_idx, :], df.iloc[test_idx, :]
-    if val:
-        return X_train, y_train, X_val, y_val, X_test, y_test
-    else:
-        return X_train, y_train, X_test, y_test
+    return X_train, y_train, X_val, y_val, X_test, y_test
 
 # data transforms
 def logpseudocount(X):
@@ -710,7 +710,7 @@ def standardize(X):
     scaler = StandardScaler()
     return scaler.fit_transform(X)
 
-def get_Xy(data, md, val=True, prop_train=0.8, transform=True, single_precision=True, verbose=False):
+def get_Xy(data, md, pkl_out=None, prop_train=0.8, transform=True, single_precision=True, verbose=False):
     '''Get actigraphy data and all possible labels for model dev
 
     TODO:
@@ -719,94 +719,38 @@ def get_Xy(data, md, val=True, prop_train=0.8, transform=True, single_precision=
     X = np.zeros((len(data.keys()), data[list(data.keys())[0]][1].shape[0]))
     label_df = pd.DataFrame(index=np.arange(len(data.keys())))
     for i, (k, v) in enumerate(data.items()):
-        X[i, :] = v[1]
+        X[i, :] = v[1] # v[0] has datetimes
         pid = k.split('-')[0]
         label_df.loc[i, 'pid'] = pid
         label_df.loc[i, 'GA'] = float(k.split('-')[1])
     md['record_id'] = md['record_id'].astype(str)
     label_df = label_df.merge(md, left_on='pid', right_on='record_id', how='left')
-    if val:
-        X_train, y_train, X_val, y_val, X_test, y_test = split_by_pid(X, label_df, val=val, prop_train=prop_train)
-        if transform:
-            X_val = standardize(logpseudocount(X_val))
-    else:
-        X_train, y_train, X_test, y_test = split_by_pid(X, label_df, val=val, prop_train=prop_train)
+    X_train, y_train, X_val, y_val, X_test, y_test = split_by_pid(X, label_df, prop_train=prop_train)
     if transform:
-        X_train = standardize(logpseudocount(X_train))
-        X_test = standardize(logpseudocount(X_test))
-    if val:
-        if verbose:
-            # print shapes
-            print('X_train: ({}, {})'.format(*X_train.shape))
-            print('y_train: ({}, {})'.format(*y_train.shape))
-            print('X_val: ({}, {})'.format(*X_val.shape))
-            print('y_val: ({}, {})'.format(*y_val.shape))
-            print('X_test: ({}, {})'.format(*X_test.shape))
-            print('y_test: ({}, {})'.format(*y_test.shape))
+        X_train = logpseudocount(X_train)
+        X_val = logpseudocount(X_val)
+        X_test = logpseudocount(X_test)
+    if verbose:
+        # print shapes
+        print('X_train: ({}, {})'.format(*X_train.shape))
+        print('y_train: ({}, {})'.format(*y_train.shape))
+        print('X_val: ({}, {})'.format(*X_val.shape))
+        print('y_val: ({}, {})'.format(*y_val.shape))
+        print('X_test: ({}, {})'.format(*X_test.shape))
+        print('y_test: ({}, {})'.format(*y_test.shape))
         if single_precision:
             X_train = X_train.astype('float32')
             X_val = X_val.astype('float32')
             X_test = X_test.astype('float32')
-        return X_train, y_train, X_val, y_val, X_test, y_test
-    else:
-        if verbose:
-            # print shapes
-            print('X_train: ({}, {})'.format(*X_train.shape))
-            print('y_train: ({}, {})'.format(*y_train.shape))
-            print('X_test: ({}, {})'.format(*X_test.shape))
-            print('y_test: ({}, {})'.format(*y_test.shape))
-        if single_precision:
-            X_train = X_train.astype('float32')
-            X_test = X_test.astype('float32')
-        return X_train, y_train, X_test, y_test
-
-def md2y(y_dict, label='GA', wide=False, verbose=False):
-    '''Metadata df of labels to y model table of label
-
-    Arguments:
-      y_dict (dict): Aggregate all y's (y_train, y_test, y_val) as a dict,
-        allowing for flexible size.
-      wide (bool): (optional, Default=False) whether to leave the y array in
-        long or wide form. Ignored if input ys are continuous.
-    '''
-    # make sure get all for label encoder
-
-    for i, k in enumerate(y_dict.keys()):
-        if i==0:
-            Y = y_dict[k][label]
-        else:
-            Y = Y.append(y_dict[k][label])
-    if not Y.dtype == object:
-        for k in y_dict.keys():
-            y_dict[k] = y_dict[k][label].astype('float32').to_numpy()
-        return y_dict, 'regression'
-    else:
-        # one hot encode
-        from sklearn.preprocessing import LabelEncoder
-        le = LabelEncoder()
-        le.fit(Y)
-        if verbose:
-            print('Categorical label encoding:')
-            for i, c in enumerate(le.classes_):
-                print('{}: {}'.format(i, c))
-        for k in y_dict.keys():
-            y_dict[k] = le.transform(y_dict[k][label]) # converts to int64
-            if wide:
-                a = np.zeros((len(y_dict[k]), le.classes_.shape[0]), dtype=int)
-                a[np.arange(len(y_dict[k])), y_dict[k]] = 1
-                y_dict[k] = a
-        return y_dict, le.classes_
-
-def ppdata_frompkl(file='/home/ngr/gdrive/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl', on_farnam=False):
-    if on_farnam:
-        file = '/home/ngr4/project/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl'
-    with open(file, 'rb') as f:
-        data = pickle.load(f)
-        f.close()
-    return data
-
-def ppdata_farnam():
-    return ppdata_frompkl(file='/home/ngr4/project/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl')
+    out = {'X_train': X_train, 'Y_train': y_train, 
+           'X_val': X_val, 'Y_val': y_val, 
+           'X_test': X_test, 'Y_test': y_test}
+    if pkl_out is not None:
+        with open(pkl_out, 'wb') as f:
+            pickle.dump(out, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.close()
+   
+    return out
 
 class actigraphy_dataset(torch.utils.data.Dataset):
     def __init__(self, X, y_wide):
@@ -823,15 +767,69 @@ class actigraphy_dataset(torch.utils.data.Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, idx):
-        return {'X':torch.tensor(self.X[idx, :].reshape(1, -1)),
-                'y':torch.tensor(self.y[idx]),
+        X = torch.tensor(self.X[idx, :].reshape(1, -1))
+        y = torch.tensor(self.y.iloc[idx])
+        X = X.float()
+        y = y.float()
+        return {'X':X,
+                'y':y,
                 'idx':idx}
 
+def pkl_loadedactigraphy_md(dfp='/home/ngr4/project/wearables/data/processed/', pkl_out=None, onehot_md=True, minority_as_pos=True):
+    total = time.time()
+    data, md = load_data_md(dfp)
+    print('time elapsed: {:.0f}-s'.format(time.time() - total))
+    if onehot_md:
+        ohmd = pd.get_dummies(md, dtype=np.int64)
+        if minority_as_pos:
+            for c in ohmd.columns:
+                if ohmd[c].dtype != 'float32':
+                    if not ohmd[c].sum()/ohmd.shape[0] >= 0.5:
+                        new_c = ''.join(i+'_' for i in c.split('_')[:-1]) + 'not'+ c.split('_')[-1]
+                        ohmd[new_c] = (~(ohmd[c]==1)).astype(np.int64)
+                        del ohmd[c]
+        out = {'data': data, 'ohmd': ohmd, 'md': md}
+    else:
+        out = {'data': data, 'md': md}
 
+    if pkl_out is not None:
+        with open(os.path.join(dfp, pkl_out), 'wb') as f:
+            pickle.dump(out, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.close()
+    return out
+
+def load_actigraphy_md(dfp='/home/ngr4/project/wearables/data/processed', pkl='data_md_210929.pkl'):
+    with open(os.path.join(dfp, pkl), 'rb') as f:
+        data = pickle.load(f)
+        f.close()
+    return data
 
 if __name__ == '__main__':
-    data, md = load_data_md()
-    X_train, y_train, X_val, y_val, X_test, y_test = get_Xy(data, md, label='GA', prop_train=0.8, verbose=True)
+    # data = weardata.pkl_loadedactigraphy_md(pkl_out='data_md_210929.pkl')
 
-    # use the data type to convert y to model-ready, then int v. float can determine classification v. regression
-    y_dict, target_id = series2modeltable({'y_train':y_train, 'y_val':y_val, 'y_test':y_test})
+    # save data for the first time 
+    data = pkl_loadedactigraphy_md(pkl_out='data_md_210929.pkl')
+    data = load_actigraphy_md()
+    data, md, _ = data['data'], data['ohmd'], data['md']
+    model_data = get_Xy(data, md, 
+                        pkl_out='/home/ngr4/project/wearables/data/processed/model_data_210929.pkl')
+
+    ####
+    # SPECIFY
+    ####
+    new_split = False # if want to use same model data, load old; else, start from scratch
+    ####
+
+    if new_split:
+        data = load_actigraphy_md()
+        data, md, _ = data['data'], data['ohmd'], data['md']
+        model_data = get_Xy(data, md) # save exp_trial details here, into temp; pull only top-1 to long-term storage
+    else:
+        model_data = load_datadict(fname='/home/ngr4/project/wearables/data/processed/model_data_210929.pkl')
+
+    # select target
+    X_train, y_train = model_data['X_train'], model_data['Y_train'].loc[:, target]
+    X_val, y_val = model_data['X_val'], model_data['Y_val'].loc[:, target]
+    X_train, y_train = model_data['X_test'], model_data['Y_test'].loc[:, target]
+
+
