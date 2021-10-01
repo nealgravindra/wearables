@@ -61,9 +61,9 @@ class InceptionTime_trainer():
         if self.new_split:
             data = weardata.load_actigraphy_md()
             data, md, _ = data['data'], data['ohmd'], data['md']
-            model_data = weardata.get_Xy(data, md, pkl_out=os.path.join(self.model_path, 'data_{}_{}'.format(self.exp, self.trial)) if self.model_path is not None else None)
+            model_data = weardata.get_Xy(data, md, pkl_out=os.path.join(self.model_path, 'data_{}_{}.pkl'.format(self.exp, self.trial)) if self.model_path is not None else None)
         else:
-            model_data = load_datadict(fname=file)
+            model_data = weardata.load_datadict(fname=file)
 
         # select target
         X_train, y_train = model_data['X_train'], model_data['Y_train'].loc[:, self.target]
