@@ -797,7 +797,9 @@ def md2y(y_dict, label='GA', wide=False, verbose=False):
                 y_dict[k] = a
         return y_dict, le.classes_
 
-def ppdata_frompkl(file='/home/ngr/gdrive/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl'):
+def ppdata_frompkl(file='/home/ngr/gdrive/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl', on_farnam=False):
+    if on_farnam:
+        file = '/home/ngr4/project/wearables/data/processed/datapkl_Xactigraphy_Ymd_trainvaltest210803.pkl'
     with open(file, 'rb') as f:
         data = pickle.load(f)
         f.close()
