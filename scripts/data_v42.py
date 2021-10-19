@@ -7,6 +7,7 @@ import warnings
 import time
 import re
 import datetime
+import pyActigraphy
 
 import sys
 sfp = '/home/ngrav/project' 
@@ -17,15 +18,14 @@ import torch
 
 class raw2df():
     ''' 
-    
     Description:
-      The data was sent as .csv files, annotated with the GA and pid
-      in the filepath. The csv file contains activity counts and indicators
-      of light, as well as the datetime. We want to specify the number of weeks
-      that this is available for and pair it with available metadata. Then, we pare
-      down the metadata file by transforming it in specific ways, using manual dictionary
-      entries. NOTE: all files should be in a folder, where the filenames indicate PID_GA.csv, 
-      such that the raw data is in raw_fp+'*/*.csv'
+      The data was sent with {PID}_GA{y}.mtn names. We need to convert this
+        raw data into numpy and pandas. First, we identify all valid files and
+        give new modeling IDs, {PID}_{y} where y is GA in wks. 
+        
+    Assumptions:
+      all files should be in a folder, where the filenames indicate PID_GA.mtn, 
+        such that the raw data is in raw_fp+'*/*.mtn'
     '''
     def __init__(self,
       md_filter_dict=None,
@@ -37,48 +37,44 @@ class raw2df():
         self.raw_md = pd.read_csv(raw_md_fp, low_memory=False)
         
         # get "PID STATUS GA" from filenames
-        self.IDs = self.ids_from_filenames()
+        self.IDs = self.ids_from_filenames(verbose=False)
         
-        self.exclude = {'no_lux': [], 'chk_t': [], 'lt_1d': []} 
-        self.nb_days = nb_days
-        self.data = dict()
+#         self.exclude = {'no_lux': [], 'chk_t': [], 'lt_1d': []} 
+#         self.nb_days = nb_days
+#         self.data = dict()
         
-        # slow load
-        time.time()
-        for k in self.IDs.keys():
-            t, act, lux = self.read_actigraphy_fromcsv(k, self.IDs[k])
-            # store
-            self.data[k] = {'t':t, 'activity':act, 'lux':lux} # add md
+#         # slow load
+#         time.time()
+#         for k in self.IDs.keys():
+#             t, act, lux = self.read_actigraphy_fromcsv(k, self.IDs[k])
+#             # store
+#             self.data[k] = {'t':t, 'activity':act, 'lux':lux} # add md
             
-        print('\nData loaded in {:.1f}-min'.format((time.time() - tic)/60))
+#         print('\nData loaded in {:.1f}-min'.format((time.time() - tic)/60))
         
-        print('Excluded data:')
-        for 
+#         print('Excluded data:')
+        
         
     def ids_from_filenames(self, verbose=False):
-        def newfname_fromcsv(filename, md, verbose=verbose):
+        def GA_from_md(filename, md, verbose=verbose):
             '''Grab the GA from the csv file OR assume that T1 corresponds
                  to `gawks_enroll`
-
-               NOTE: rename 10011T.csv --> 1001T1.csv. There was one other cryptic rename.
             '''
-            df = pd.read_csv(filename)
-            new_fname = df.columns[np.where(df.columns=='UserID')[0].item()+1] + '.csv'
-            newID = re.search(r'(.\d*)(.*)GA(.\d*).csv', new_fname, re.I)
-            if newID is None:
-                newID = re.search(r'(.\d*)(.*).csv', os.path.split(filename)[1], re.I)
+            f = os.path.split(filename)[1]
+            newID = re.search(r'(\d*)(.*).mtn', f, re.I)
+            pid = int(newID.group(1))
+            if len(str(pid)) != 4 and '1T' in f:
+                newID = re.search(r'(\d*)1T(.*).mtn', f, re.I)
                 pid = int(newID.group(1))
-                GA = md.loc[md['record_id']== pid, 'gawks_enroll'].item()
-                return str(pid), str(GA)
-            else:
-                return newID.group(1), newID.group(3)
+            GA = md.loc[md['record_id']== pid, 'gawks_enroll'].item()
+            return str(pid), str(GA)
         IDs = dict()
-        files = glob.glob(os.path.join(self.raw_fp, '*/*.csv'))
+        files = glob.glob(os.path.join(self.raw_fp, '*/*.mtn'))
         for f in files:
             fname = os.path.split(f)[1]
-            ID = re.search(r'(.\d*)(.*)GA(.\d*).csv', fname, re.I)
+            ID = re.search(r'(.\d*)(.*)GA(.\d*).mtn', fname, re.I)
             if ID is None:
-                pid, GA = newfname_fromcsv(f, self.raw_md)
+                pid, GA = GA_from_md(f, self.raw_md)
             else:
                 pid = ID.group(1) if 'P' not in fname else ID.group(2).split('_')[1] # exception for erroneous entry
                 GA = ID.group(3)
@@ -87,10 +83,17 @@ class raw2df():
         if verbose:
             # chk problematic ones
             for i in IDs.keys():
-                if i.split('_')[0] == '2014' or len(i.split('_')[0]) != 4:
+                if i.split('_')[0] in ['2014', '2003', '1406', '1647'] or len(i.split('_')[0]) != 4:
                     print(i, os.path.split(IDs[i])[1])
                     print('')
         return IDs
+    
+    def pyactigraphy_read_raw(self, ID, file):
+        raw = pyActigraphy.io.read_raw_mtn(file)
+        if raw.light is None:
+            self.exclude['no_lux'].append(ID)
+        # HERE
+
     
     def bad_tdelta_fillNA(self, t, act, lux, ID, td_minutes=1, verbose=True):
         '''Fill with NaN if the consecutive differences between rows is not value
