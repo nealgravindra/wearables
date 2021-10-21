@@ -32,28 +32,31 @@ class raw2df():
       nb_days=7, frompkl=None,
       raw_fp='/home/ngrav/project/wearables/data/raw/MOD1000WomanActivityData20210707T213505Z-001/MOD 1000 Woman Activity Data/', 
       raw_md_fp='/home/ngrav/project/wearables/data/raw/MOD_Data_2021.csv'):
-      
+        # initialize, load md
+        self.timer = wearutils.timer()
+        self.timer.start()
         self.raw_fp = raw_fp
         self.raw_md = pd.read_csv(raw_md_fp, low_memory=False)
         
         # get "PID STATUS GA" from filenames
         self.IDs = self.ids_from_filenames(verbose=False)
         
-#         self.exclude = {'no_lux': [], 'chk_t': [], 'lt_1d': []} 
-#         self.nb_days = nb_days
-#         self.data = dict()
+        # track exclusions
+        self.exclude = {'no_lux': [], 'chk_t': [], 'lt_1d': [], 'lt_max_t': []} 
+        self.nb_days = nb_days
+        self.data = dict()
         
-#         # slow load
-#         time.time()
-#         for k in self.IDs.keys():
-#             t, act, lux = self.read_actigraphy_fromcsv(k, self.IDs[k])
-#             # store
-#             self.data[k] = {'t':t, 'activity':act, 'lux':lux} # add md
+        self.timer.stop()
+        
+        # load all
+#         self.timer.start()
+#         self.load_all()
+#         self.timer.stop()
             
-#         print('\nData loaded in {:.1f}-min'.format((time.time() - tic)/60))
+        print('\nRaw actigraphy data loaded in {:.1f}-min'.format(self.timer.sum()/60))
         
-#         print('Excluded data:')
-        
+        # pre-process metadata
+                
         
     def ids_from_filenames(self, verbose=False):
         def GA_from_md(filename, md, verbose=verbose):
@@ -88,14 +91,7 @@ class raw2df():
                     print('')
         return IDs
     
-    def pyactigraphy_read_raw(self, ID, file):
-        raw = pyActigraphy.io.read_raw_mtn(file)
-        if raw.light is None:
-            self.exclude['no_lux'].append(ID)
-        # HERE
-
-    
-    def bad_tdelta_fillNA(self, t, act, lux, ID, td_minutes=1, verbose=True):
+    def bad_tdelta_fillNA(self, t, act, lux, sleep, ID, td_minutes=1, verbose=True):
         '''Fill with NaN if the consecutive differences between rows is not value
         '''
         n_gaps = (t.diff() != datetime.timedelta(minutes=td_minutes))[1:].sum()
@@ -104,6 +100,7 @@ class raw2df():
             tprime = pd.Series()
             actprime = pd.Series()
             luxprime = pd.Series() if isinstance(lux, pd.Series) else []
+            sleepprime = pd.Series()
             good_idx = 0
             for n, i in enumerate(np.where((t.diff() != datetime.timedelta(minutes=1)))[0][1:]):
                 t2 = t.iloc[i]
@@ -111,6 +108,7 @@ class raw2df():
                 dt = int((t2 - t1).total_seconds() / 60)
                 tprime = tprime.append(t.iloc[good_idx:i].append(pd.Series(pd.date_range(t1, t1+(t2 - t1), periods=dt+1))[1:-1]))
                 actprime = actprime.append(act.iloc[good_idx:i].append(pd.Series([np.nan]*(dt-1))))
+                sleepprime = sleepprime.append(sleep.iloc[good_idx:i].append(pd.Series([np.nan]*(dt-1))))
                 if isinstance(luxprime, pd.Series):
                      luxprime = luxprime.append(lux.iloc[good_idx:i].append(pd.Series([np.nan]*(dt-1))))
                 good_idx = i
@@ -119,41 +117,32 @@ class raw2df():
                 tprime = tprime.append(t.iloc[good_idx:])
                 actprime = actprime.append(act.iloc[good_idx:])
                 luxprime = luxprime.append(lux.iloc[good_idx:])
+                sleepprime = sleepprime.append(sleep.iloc[good_idx:])
             t = tprime
             act = actprime
             lux = luxprime
+            sleep = sleepprime
         if verbose:
             n_gaps = (t.diff() != datetime.timedelta(minutes=1))[1:].sum()
             if n_gaps != 0 :
                 print('Still not zero. ID:', ID)
                 print('')
-        return t, act, lux
-        raise NotImplementedError
+        return t, act, lux, sleep
     
-    def read_actigraphy_fromcsv(self, ID, file):
-        # extract data from csv
+    def pyactigraphy_read_raw(self, ID, file):
+        raw = pyActigraphy.io.read_raw_mtn(file)
+        if raw.light is None:
+            self.exclude['no_lux'].append(ID)
+            light = []
+        else:
+            light = raw.light
+        t = raw.data.index.to_series()
+        sleep = raw.Oakley(threshold=80)
+        activity = raw.data
+        del raw
         
-        # verbose for dev
-        print('reading {}\n'.format(ID))
-        
-        dt = pd.read_csv(file, low_memory=False)
-        for i, row0 in enumerate(dt.iloc[:, 0]):
-            if isinstance(row0, str):
-                if np.sum([True if '/' in ii else False for ii in row0]) == 2:
-                    # this indicates the datetime
-                    row_idx_start = i
-                    break
-        try:
-            idx = dt.iloc[row_idx_start:, 0].loc[~(dt.iloc[row_idx_start:, [0,1,2,3]].isna().any(1))].index.to_list()
-        except IndexError:
-            self.exclude['no_lux'].append(ID) # reason
-            idx = dt.iloc[row_idx_start:, 0].loc[~(dt.iloc[row_idx_start:, [0,1,2]].isna().any(1))].index.to_list()
-        t = pd.to_datetime(dt.iloc[idx, 0].astype(str) + ' ' + dt.iloc[idx, 1].astype(str), format='%m/%d/%Y %I:%M:%S %p',)
-        activity = dt.iloc[idx, 2] # MW counts
-        lux = dt.iloc[idx, 3] if ID not in self.exclude['no_lux'] else [] # pd.Series(len(t)*[np.nan], index=t.index) # lux
-
         # chk tdelta
-        t, activity, lux = self.bad_tdelta_fillNA(t, activity, lux, ID)
+        t, activity, light, sleep = self.bad_tdelta_fillNA(t, activity, light, sleep, ID)
 
         # get start
         first_midnight_idx = [i for i, t_i in enumerate(t) if t_i.hour==0 and t_i.minute==0]
@@ -164,381 +153,36 @@ class raw2df():
             self.exclude['lt_1d'] = ID
         t = t.iloc[first_midnight_idx:]
         activity = activity.iloc[first_midnight_idx:]
-        lux = lux.iloc[first_midnight_idx:] if isinstance(lux, pd.Series) else []
+        sleep = sleep.iloc[first_midnight_idx:]
+        light = light.iloc[first_midnight_idx:] if isinstance(light, pd.Series) else []
         
         # truncate
         max_t = self.nb_days*24*60
-        return t.iloc[:max_t], activity.iloc[:max_t], lux.iloc[:max_t] if isinstance(lux, pd.Series) else []
+        t = t.iloc[:max_t]
+        activity = activity.iloc[:max_t]
+        light = light.iloc[:max_t] if isinstance(light, pd.Series) else []
+        sleep = sleep.iloc[:max_t]
+        
+        # trailing NaN
+        ## HERE
 
-'''
-    def pkldata(self):
+        return {'t':t, 'activity':activity, 'light':light, 'sleep':sleep}
+    
+    def load_all(self):
+        for i, k in enumerate(self.IDs.keys()):
+            t, act, lux, sleep = self.pyactigraphy_read_raw(k, self.IDs[k])
+            self.data[k] = {'t':t, 'activity':act, 'lux':lux, 'sleep':sleep} 
+            
 
-    # copy over file if it does not exist, otherwise skip poor organization
-    for file_in_outer_folders in glob.glob(os.path.join(filepath, '*csv')):
-        pid = os.path.split(file_in_outer_folders)[1].split('_')[0]
-
-        pid_folder_count = 0
-        pid_folder = []
-        for i in glob.glob(os.path.join(filepath, '*'+pid+'*')):
-             if os.path.isdir(i):
-                 pid_folder_count += 1
-                 pid_folder.append(i)
-        if pid_folder_count == 1:
-            dst = os.path.join(pid_folder[0], os.path.split(file_in_outer_folders)[1])
-            if not os.path.exists(dst):
-                from shutil import copyfile
-                print('  copying from outer folder to:\n    {}'.format(dst))
-                copyfile(file_in_outer_folders, dst)
-        elif pid_folder_count == 0:
-            os.mkdir(os.path.join(filepath, pid))
-            from shutil import copyfile
-            dst = os.path.join(os.path.join(filepath, pid), os.path.split(file_in_outer_folders)[1])
-            print('  copying from outer folder to:\n    {}'.format(dst))
-            copyfile(file_in_outer_folders, dst)
-        else:
-            warnings.warn('Warning.\n  file in outer folder not associated with PID:\n    {}'.format(file_in_outer_folders))
-
-    # read and store with pid_GA label
-    print('\nLoading graphs into datapkl...')
-    data = {}
-    counter = 0
-    noga_counter = 0
-    noga_files = []
-    tic = time.time()
-    for folder in glob.glob(os.path.join(filepath, '*')):
-        for file in glob.glob(os.path.join(folder, '*.csv')):
-            if 'ga' not in file.lower():
-                # skip these for now, until resolved
-                noga_files.append(file)
-                noga_counter += 1
-            else:
-                dt = pd.read_csv(file)
-                f = os.path.split(file)[1]
-                f = f.replace(' ', '')
-                if '_' in f:
-                    pid, f = f.lower().split('_ga')
-                elif '-' in f:
-                    pid, f = f.lower().split('-ga')
-                GA = int(f.split('.csv')[0])
-
-                for i, row0 in enumerate(dt.iloc[:, 0]):
-                    if isinstance(row0, str):
-                        if np.sum([True if '/' in ii else False for ii in row0]) == 2:
-                            row_idx_start = i
-                            break
-
-                idx = dt.iloc[row_idx_start:, 0].loc[(~dt.iloc[row_idx_start:, [0,1,2]].isna().any(1)) == True].index.to_list()
-                t = pd.to_datetime(dt.iloc[idx, 0].astype(str) + ' ' + dt.iloc[idx, 1].astype(str), format='%m/%d/%Y %I:%M:%S %p',)
-                activity = dt.iloc[idx, 2] # MW counts
-                data['{}-{}'.format(pid, GA)] = [t.to_list(), activity.to_list()]
-                counter += 1
-
-                if counter % 100 == 0 :
-                    print('... through {} graphs in {:.0f}-s'.format(counter, time.time() - tic))
-
-    print('\n... Finished! {} graphs loaded in {:.1f}-min'.format(counter, (time.time() - tic)/60))
-
-    print('\  NOTE: the following {} samples were not processed (no GA label):'.format(noga_counter))
-    for f in noga_files:
-        print('    ', f)
-
-    if pkl_out is not None:
-        if not os.path.exists(os.path.split(pkl_out)[0]):
-            os.mkdir(os.path.split(pkl_out)[0])
-        with open(pkl_out, 'wb') as f:
-            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-            f.close()
-        print('Wrote unprocessed data to {}'.format(pkl_out))
-    return data
-
-def load_datadict(fname='/home/ngr/gdrive/wearables/data/processed/GAactigraphy_datadict.pkl'):
-    with open(fname, 'rb') as f:
-        data = pickle.load(f)
-        f.close()
-    return data
-
-def keys2_npt_nobs(keys_list):
-    PID, GA = [], []
-    for k in keys_list:
-        pid, ga = k.split('-')
-        PID.append(pid)
-        GA.append(int(ga))
-    return np.unique(PID).shape[0], len(GA)
-'''
-def chk_tdeltas(data, truncate_at_day=None, leading_pad=True, drop_first_day=True, verbose=True):
-    '''Check for the temporal differences between consecutive measurements.
-
-    Arguments:
-      truncate_at_day (int): (optional, Default=None) in units of d, truncate after x days. None keeps all data
-      leading_pad (bool): (optional, Default=True) add pads to align ts so first time is 12 AM
-      drop_first_day (bool): (optional, Default=True) drop the first day since, worst case is measurement
-        starting at 12 AM
-    '''
-
-    k_irreg_tdelta = []
-    irreg_tdelta = []
-    keys2keep = []
-    k_lt1d = []
-    timer = wearutils.timer()
-
-    if verbose:
-        timer.start()
-    for i, (k, v) in enumerate(data.items()):
-        ts, _ = v[0], v[1]
-        if leading_pad:
-            ts = pd.to_datetime(np.linspace(ts[0].replace(hour=0, minute=0).value, ts[0].value, ts[0].hour*60 + ts[0].minute + 1)).to_list() + ts
-        if drop_first_day:
-            # drop 1d* 24h/d * 60min/h timepts
-            idx = 1*24*60+1
-            if not len(ts) <= idx:
-                ts = ts[idx:]
-            else:
-                k_lt1d.append(k)
-        if truncate_at_day is not None:
-            ts = ts[:truncate_at_day*24*60+1]
-        unique_tdeltas = np.unique(np.diff(pd.Series(ts)))
-        if np.timedelta64(1, 'm') in unique_tdeltas and unique_tdeltas.shape[0] == 1:
-            keys2keep.append(k)
-        else:
-            k_irreg_tdelta.append(k)
-            irreg_tdelta.append(unique_tdeltas)
-        if verbose:
-            if i % 500 == 0 and i != 0 :
-                print('  through m={}\t{:.0f}-s elapsed'.format(i+1, timer.stop()))
-
-    # filter out keys of data with less than 1d
-    keys2keep =  [i for i in keys2keep if i not in k_lt1d]
-
-    if verbose:
-        print('\n{} measurements (out of {}) have multiple t delta'.format(len(k_irreg_tdelta), len(data.keys())))
-        npt, nobs = keys2_npt_nobs(keys2keep)
-        print('  i.e., {}-pts across {}-measurements have 1min t deltas, whereas'.format(npt, nobs))
-        npt, nobs = keys2_npt_nobs(k_irreg_tdelta)
-        print('        {}-pts across {}-measurements have more than 1 t delta'.format(npt, nobs))
-
-        print('\n  {} measurements had fewer than 1d data. Were not added to keys2keep'.format(len(k_lt1d)))
-
-    if verbose:
-        print('  \nunique time deltas:')
-        print(pd.value_counts([j for i in irreg_tdelta for j in i]))
-
-    return keys2keep, k_irreg_tdelta
-
-def chk_tdeltas_multiday(data, days_to_truncate=[None, 3, 5, 7, 14], out_file=None, verbose=True):
-    results = pd.DataFrame()
-    if verbose:
-        timer = wearutils.timer()
-    for d in days_to_truncate:
-        if verbose:
-            timer.start()
-        keys2keep, keys2discard = chk_tdeltas(data, truncate_at_day=d, verbose=False)
-        npt_keep, nobs_keep = keys2_npt_nobs(keys2keep)
-        npt_discard, nobs_discard = keys2_npt_nobs(keys2discard)
-        results = results.append(pd.DataFrame({'truncate_after_day':d,
-                                               'npt2keep':npt_keep,
-                                               'nmeas2keep':nobs_keep,
-                                               'npt2discard':npt_discard,
-                                               'nmeas2discard':nobs_discard,}, index=[0]), ignore_index=True)
-        if verbose:
-            print('\tthrough {}\tin {:.0f}-s\tt_elapsed: {:.0f}-min'.format(str(d), timer.stop(), timer.sum()/60))
-    if out_file is not None:
-        results.to_csv(out_file)
-    return results
-
-
-def get_ntimepoints(data, truncate_at_day=None, leading_pad=True, drop_first_day=False, verbose=True):
-    '''Get n_timepoints after adding leading zeros and, optionally, dropping first day
-
-    Arguments:
-      truncate_at_day (int): (optional, Default=None) in units of d, truncate after x days. None keeps all data
-      leading_pad (bool): (optional, Default=True) add pads to align ts so first time is 12 AM
-      drop_first_day (bool): (optional, Default=True) drop the first day since, worst case is measurement
-        starting at 12 AM
-    '''
-    n_t = pd.DataFrame()
-    k_lt1d = []
-
-    for i, (k, v) in enumerate(data.items()):
-        pid, ga = k.split('-')
-        ts, _ = v[0], v[1]
-        if leading_pad:
-            ts = pd.to_datetime(np.linspace(ts[0].replace(hour=0, minute=0).value, ts[0].value, ts[0].hour*60 + ts[0].minute + 1)).to_list() + ts
-        if drop_first_day:
-            # drop 1d* 24h/d * 60min/h timepts
-            idx = 1*24*60+1
-            if not len(ts) <= idx:
-                ts = ts[idx:]
-            else:
-                k_lt1d.append(k)
-        if truncate_at_day is not None:
-            ts = ts[:truncate_at_day*24*60+1]
-        n_t = n_t.append(pd.DataFrame({'key':k, 'pid':pid, 'GA':ga, 'n_t':len(ts), }, index=[0]), ignore_index=True)
-    n_t['n_days'] = n_t['n_t']/(24*60)
-    return n_t
-
-def viz_prop_n_days(data, day_cutoff=8, out_file=None):
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    # get data
-    nt = get_ntimepoints(data)
-
-    # plot
-    fig, ax = plt.subplots(1, 1, figsize=(4,3))
-    sns.ecdfplot(x='n_days', data=nt, ax=ax, label='All data')
-    sns.ecdfplot(x='n_days', data=nt.groupby('GA').mean().reset_index(), ax=ax, label='GA')
-    sns.ecdfplot(x='n_days', data=nt.groupby('pid').mean().reset_index(), ax=ax, label='Patient')
-    ax.plot([day_cutoff, day_cutoff], [ax.get_ylim()[0], ax.get_ylim()[1]], 'k--')
-    ax.legend(bbox_to_anchor=(1.01, 1))
-
-    if out_file is not None:
-        fig.savefig(out_file, bbox_inches='tight')
-
-    return nt
-
-def ppdata_fromdict2dict(data, out_file=None, truncate_at_day=7, leading_pad=True, drop_first_day=True, verbose=True):
-    '''Create a new datapkl that has measurements for cohort.
-
-    Arguments:
-      truncate_at_day (int): (optional, Default=None) in units of d, truncate after x days. None keeps all data
-      leading_pad (bool): (optional, Default=True) add pads to align ts so first time is 12 AM
-      drop_first_day (bool): (optional, Default=True) drop the first day since, worst case is measurement
-        starting at 12 AM
-      data_out: pkl file to store measurements for cohort
-      pp_md_out: where to store information on cohort selection
-    '''
-
-    ppdata = {}
-
-    # criterion
-    keys2keep = []
-    k_multi_tdeltas = []
-    k_ltcutoff = []
-    k_lt1d = []
-    timer = wearutils.timer()
-
-    if verbose:
-        timer.start()
-    for i, (k, v) in enumerate(data.items()):
-        pass_filters = [True]
-        ts, x = v[0], v[1]
-        if leading_pad:
-            x = np.concatenate((np.zeros((ts[0].hour*60 + ts[0].minute + 1)), [float(i) for i in x]))
-            ts = pd.to_datetime(np.linspace(ts[0].replace(hour=0, minute=0).value, ts[0].value, ts[0].hour*60 + ts[0].minute + 1)).to_list() + ts
-
-        # filter: drop first day
-        if drop_first_day:
-            # drop 1d* 24h/d * 60min/h timepts
-            idx = 1*24*60+1
-            if not len(ts) <= idx:
-                x = x[idx:]
-                ts = ts[idx:]
-            else:
-                pass_filters.append(False)
-                k_lt1d.append(k)
-
-        # filter: truncate after X days (post-drop first day, e.g., first week after dropping first day)
-        if truncate_at_day is not None:
-            idx_end = truncate_at_day*24*60+1
-            if not len(ts) < idx_end:
-                x = x[:idx_end]
-                ts = ts[:idx_end]
-            else:
-                pass_filters.append(False)
-                k_ltcutoff.append(k)
-
-        # filter: if there are measurements that aren't measured every minute, drop
-        unique_tdeltas = np.unique(np.diff(pd.Series(ts)))
-        if np.timedelta64(1, 'm') not in unique_tdeltas and unique_tdeltas.shape[0] != 1:
-            k_multi_tdeltas.append(k)
-            pass_filters.append(False)
-
-        # retention
-        if all(pass_filters):
-            keys2keep.append(k)
-            ppdata[k] = (ts, x)
-
-        if verbose:
-            if i % 500 == 0 and i != 0 :
-                print('  through m={}\t{:.0f}-s elapsed'.format(i+1, timer.stop()))
-
-    if verbose:
-        print('\n... finished filtering.')
-        print('\nDataset numbers:')
-        print('----------------')
-        npt, nobs = keys2_npt_nobs(keys2keep)
-        print('retained : {}-pts across {}-measurements'.format(npt, nobs))
-        npt, nobs = keys2_npt_nobs(k_lt1d)
-        print('<1d data : {}-pts across {}-measurements'.format(npt, nobs))
-        npt, nobs = keys2_npt_nobs(k_ltcutoff)
-        print('<{}d data : {}-pts across {}-measurements'.format(truncate_at_day, npt, nobs))
-        npt, nobs = keys2_npt_nobs(k_multi_tdeltas)
-        print('multi_dt : {}-pts across {}-measurements'.format(npt, nobs))
-
-    # save
-    if out_file is not None:
-        with open(out_file, 'wb') as f:
-            pickle.dump(ppdata, f, protocol=pickle.HIGHEST_PROTOCOL)
-            f.close()
-        if verbose:
-            print('\n wrote pre-processed datapkl to: {}'.format(out_file))
-
-    return ppdata
-
-def chk_datashape(ppdata):
-    ts_mismatch = []
-    datalen = []
-    for k, v in ppdata.items():
-        if len(v[0]) != len(v[1]):
-            ts_mismatch.append(k)
-        datalen.append(len(v[0]))
-    if len(np.unique(datalen)) != 1:
-        print('Test failed. There are data of different shapes')
-    return datalen
-
-
-def load_pp_rawdata(pp_pkl_out='/home/ngr/gdrive/wearables/data/processed/pp_GAactigraphy.pkl', load_datadict=True):
-    '''v0.2 pre-processing of the data from raw download.
-
-    TODO:
-      - [x] add arguments for fx calls.
-      - [ ] clean run on lab server
-    '''
-    if load_datadict:
-        data = load_datadict()
-    else:
-        data = pkldata(pkl_out='/home/ngr/gdrive/wearables/data/processed/GAactigraphy_datadict.pkl') # iterative saving
-
-    # quality control
-    results_table = chk_tdeltas_multiday(data, out_file='/home/ngr/gdrive/wearables/results/npts_nmeas_after_truncating_longdata.csv')
-    nt = get_ntimepoints(data)
-    viz_prop_n_days(data, out_file='/home/ngr/gdrive/wearables/results/n_days_after_adding_leadingpad.pdf')
-
-    ## check how many 0s there may be
-
-    ## get data
-    ppdata = ppdata_fromdict2dict(data, out_file='/home/ngr/gdrive/wearables/data/processed/ppdata_1wk.pkl')
-    datalens = chk_datashape(ppdata)
-
-    return ppdata
-
-# v0.2
-def load_ppdata(filepath='/home/ngr/gdrive/wearables/data/processed/ppdata_1wk.pkl'):
-    with open(filepath, 'rb') as f:
-        ppdata = pickle.load(f)
-        f.close()
-    return ppdata
-
-def load_rawmd(filepath='/home/ngr/gdrive/wearables/data/raw/MOD_Data_2021.csv'):
-    return pd.read_csv(filepath, low_memory=False)
-
-# v0.1
-def load_pp_actigraphy(fname='/home/ngr/gdrive/wearables/data/processed/MOD_1000_Woman_Activity_Data.pkl'):
-    with open(fname, 'rb') as f:
-        data = pickle.load(f)
-        f.close()
-    return data
-
+            
+            
+            
+            
+            
+            
+            
+            
+            
 def split_pp_actigraphy(data):
     pids = np.unique([i.split('-')[0] for i in data.keys()])
     train_pids = np.random.choice(pids, int(len(pids)*0.8), replace=False)
