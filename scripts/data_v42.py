@@ -30,34 +30,56 @@ class raw2df():
     def __init__(self,
       md_filter_dict=None,
       nb_days=7, frompkl=None,
+      log_pseudocount=True,
       raw_fp='/home/ngrav/project/wearables/data/raw/MOD1000WomanActivityData20210707T213505Z-001/MOD 1000 Woman Activity Data/', 
       raw_md_fp='/home/ngrav/project/wearables/data/raw/MOD_Data_2021.csv'):
+        
         # initialize, load md
         self.timer = wearutils.timer()
         self.timer.start()
         self.raw_fp = raw_fp
         self.raw_md = pd.read_csv(raw_md_fp, low_memory=False)
-        
-        # get "PID STATUS GA" from filenames
-        self.IDs = self.ids_from_filenames(verbose=False)
-        
-        # track exclusions
-        self.exclude = {'no_lux': [], 'chk_t': [], 'lt_1d': [], 'lt_max_t': []} 
+        self.exclude = {'no_lux': [], 'chk_t': [], 
+                        'lt_1d': [], 'lt_max_t': [],
+                        'corrupt_mtn': [], 
+                        'md_mismatch': []} 
         self.nb_days = nb_days
         self.data = dict()
         
-        self.timer.stop()
+        # get "{PID}_{GA}" from filenames
+        self.IDs = self.ids_from_filenames(verbose=False)
+        self.timer.stop() # done with initializations
         
         # load all
-#         self.timer.start()
-#         self.load_all()
-#         self.timer.stop()
-            
+        self.timer.start()
+        self.load_all()
+        self.timer.stop()
         print('\nRaw actigraphy data loaded in {:.1f}-min'.format(self.timer.sum()/60))
         
-        # pre-process metadata
-                
+        # get valid IDs
+        self.timer.start()
+        self.delete_problematic_measurements()
         
+        # pre-process metadata
+        self.drop_IDs_in_md_notin_data()
+        
+        # import voi
+        from wearables.data.processed import md_pp_specification as md_rules
+        self.voi = md_rules.voi
+        md_summary = self.inspect_tabular(self.raw_md, self.voi, plot_out='/home/ngrav/project/wearables/results/md_var_summary_pre.pdf')
+        self.md = self.pp_metadata(self.raw_md, self.voi)
+        self.md_summary = self.inspect_tabular(self.md, self.voi, plot_out='/home/ngrav/project/wearables/results/md_var_summary_post.pdf')
+        
+        # add metadata as labels to each data file
+        self.add_labels_to_data()
+        
+        # transforms
+        if log_pseudocount:
+            self.transform_logpseudocount()
+        
+        self.stop()
+        print('\nAll raw2modeldata pp done in {:.1f}-min'.format(self.timer.sum()/60))
+            
     def ids_from_filenames(self, verbose=False):
         def GA_from_md(filename, md, verbose=verbose):
             '''Grab the GA from the csv file OR assume that T1 corresponds
@@ -91,113 +113,293 @@ class raw2df():
                     print('')
         return IDs
     
-    def bad_tdelta_fillNA(self, t, act, lux, sleep, ID, td_minutes=1, verbose=True):
-        '''Fill with NaN if the consecutive differences between rows is not value
-        '''
-        n_gaps = (t.diff() != datetime.timedelta(minutes=td_minutes))[1:].sum()
-        if n_gaps != 0 :
-            self.exclude['chk_t'] = ID
-            tprime = pd.Series()
-            actprime = pd.Series()
-            luxprime = pd.Series() if isinstance(lux, pd.Series) else []
-            sleepprime = pd.Series()
-            good_idx = 0
-            for n, i in enumerate(np.where((t.diff() != datetime.timedelta(minutes=1)))[0][1:]):
-                t2 = t.iloc[i]
-                t1 = t.iloc[i-1]
-                dt = int((t2 - t1).total_seconds() / 60)
-                tprime = tprime.append(t.iloc[good_idx:i].append(pd.Series(pd.date_range(t1, t1+(t2 - t1), periods=dt+1))[1:-1]))
-                actprime = actprime.append(act.iloc[good_idx:i].append(pd.Series([np.nan]*(dt-1))))
-                sleepprime = sleepprime.append(sleep.iloc[good_idx:i].append(pd.Series([np.nan]*(dt-1))))
-                if isinstance(luxprime, pd.Series):
-                     luxprime = luxprime.append(lux.iloc[good_idx:i].append(pd.Series([np.nan]*(dt-1))))
-                good_idx = i
-            # append the ends
-            if i != len(t) - 1:
-                tprime = tprime.append(t.iloc[good_idx:])
-                actprime = actprime.append(act.iloc[good_idx:])
-                luxprime = luxprime.append(lux.iloc[good_idx:])
-                sleepprime = sleepprime.append(sleep.iloc[good_idx:])
-            t = tprime
-            act = actprime
-            lux = luxprime
-            sleep = sleepprime
-        if verbose:
-            n_gaps = (t.diff() != datetime.timedelta(minutes=1))[1:].sum()
-            if n_gaps != 0 :
-                print('Still not zero. ID:', ID)
-                print('')
-        return t, act, lux, sleep
-    
     def pyactigraphy_read_raw(self, ID, file):
-        raw = pyActigraphy.io.read_raw_mtn(file)
+        try:
+            raw = pyActigraphy.io.read_raw_mtn(file)
+        except AttributeError:
+            self.exclude['corrupt_mtn'].append(ID)
+            print('Corrupt file for ID: {}'.format(ID))
+            return None
         if raw.light is None:
             self.exclude['no_lux'].append(ID)
             light = []
         else:
             light = raw.light
         t = raw.data.index.to_series()
-        sleep = raw.Oakley(threshold=80)
+        sleep = raw.Oakley(threshold=80) # 
         activity = raw.data
         del raw
         
-        # chk tdelta
-        t, activity, light, sleep = self.bad_tdelta_fillNA(t, activity, light, sleep, ID)
-
         # get start
         first_midnight_idx = [i for i, t_i in enumerate(t) if t_i.hour==0 and t_i.minute==0]
         if len(first_midnight_idx) != 0:
             first_midnight_idx = first_midnight_idx[0] 
         else:
             first_midnight_idx = 0
-            self.exclude['lt_1d'] = ID
-        t = t.iloc[first_midnight_idx:]
-        activity = activity.iloc[first_midnight_idx:]
-        sleep = sleep.iloc[first_midnight_idx:]
-        light = light.iloc[first_midnight_idx:] if isinstance(light, pd.Series) else []
+            self.exclude['lt_1d'].append(ID)
+            
+        # go from first midnight to nb-days out, fill with NA otherwise
+        new_t = pd.date_range(t.iloc[first_midnight_idx], 
+                              t.iloc[first_midnight_idx] + datetime.timedelta(days=self.nb_days), 
+                              periods=self.nb_days*24*60+1)
+        t = t.reindex(new_t)
+        activity = activity.reindex(new_t)
+        sleep = sleep.reindex(new_t)
+        light = light.reindex(new_t) if isinstance(light, pd.Series) else []
         
-        # truncate
-        max_t = self.nb_days*24*60
-        t = t.iloc[:max_t]
-        activity = activity.iloc[:max_t]
-        light = light.iloc[:max_t] if isinstance(light, pd.Series) else []
-        sleep = sleep.iloc[:max_t]
-        
-        # trailing NaN
-        ## HERE
+        # log missingness to chk tdelta 
+        if any(t.isna()):
+            self.exclude['chk_t'].append(ID)
 
         return {'t':t, 'activity':activity, 'light':light, 'sleep':sleep}
     
     def load_all(self):
         for i, k in enumerate(self.IDs.keys()):
-            t, act, lux, sleep = self.pyactigraphy_read_raw(k, self.IDs[k])
-            self.data[k] = {'t':t, 'activity':act, 'lux':lux, 'sleep':sleep} 
+            self.data[k] = self.pyactigraphy_read_raw(k, self.IDs[k])
             
+    def delete_problematic_measurements(self, 
+                                        exclude_list=['no_lux', 'corrupt_mtn', 'lt_1d', 'chk_t'], 
+                                        verbose=False):
+        counter = 0 
+        for problem in self.exclude_list:
+            if isinstance(self.exclude[problem], list):
+                for k in list(self.exclude[problem]):
+                    if verbose:
+                        print('{} excluded because {}'.format(k, problem))
+                    counter += 1
+                    del self.IDs[k]
+                    del self.data[k]
+            else:
+                if verbose:
+                    print('{} excluded because {}'.format(self.exclude[problem], problem))
+                counter += 1
+                del self.data[self.exclude[problem]]
+                del self.IDs[self.exclude[problem]]
+            if verbose:
+                print('{} measurements deleted'.format(counter))
+            
+    def drop_IDs_in_md_notin_data(self, del_missing_labels):
+        IDs = list(self.IDs.keys())
+        self.exclude['missing_md'] = [i for i in IDs if int(i.split('_')[0]) not in self.raw_md['record_id'].tolist()]
+        if len(self.exclude['missing_md']) != 0:
+            warnings.warn('No label!')
+            print('problematic keys that have no labels:')
+            counter = 0
+            for k in self.exclude['missing_md']:
+                print(k)
+                if del_missing_labels:
+                    del self.IDs[k]
+                    del self.data[k]
+                    counter += 1
+            if del_missing_labels:
+                print('{} measurements deleted.'.format(counter))
+                
+        # remove from md
+        self.raw_md = self.raw_md.loc[self.raw_md['record_id'].isin([int(i.split('_')[0]) for i in IDs] ), :]
+        
+    def compute_composities_in_md(self):
+        raise NotImplementedError
+        
+    def inspect_tabular(self, tab, voi, figsize=(36, 24), n_subplots=[11, 10], verbose=False, plot_out=None, summary_out=None):
+        '''
 
-            
-            
-            
-            
-            
-            
-            
-            
-            
-def split_pp_actigraphy(data):
-    pids = np.unique([i.split('-')[0] for i in data.keys()])
-    train_pids = np.random.choice(pids, int(len(pids)*0.8), replace=False)
-    test_pids = [i for i in pids if i not in train_pids]
+        Arguments:
+          voi (dict): variables of interest as dictionary with 
+            format: key=var name in column of df,
+            value=([list of filters], continuous/categorical/ordinal) where 
+            list of filters are triggered by a separate function later, and the second
+            element of the tuple is a specification for the var type to be transformed.
 
-    train_keys, test_keys = [], []
-    for k in data.keys():
-        if k.split('-')[0] in train_pids:
-            train_keys.append(k)
-        elif k.split('-')[0] in test_pids:
-            test_keys.append(k)
+        '''
+        fig = plt.figure(figsize=figsize)
+        summary = pd.DataFrame()
+        from scipy.stats import normaltest
+        for i, (k, v) in enumerate(voi.items()):
+            ax = fig.add_subplot(n_subplots[1], n_subplots[0], i+1)
+            if v[1] == 'continuous':
+                statistic, p = normaltest(tab[k])
+                if p < 0.01:
+                    central_summary = '{:.2f}'.format(tab[k].median())
+                    spread = ' ({:.2f} - {:.2f})'.format(tab[k].quantile(0.25), tab[k].quantile(0.75))
+                else:
+                    central_summary = '{:.2f}'.format(tab[k].mean())
+                    spread = ' ({:.2f})'.format(tab[k].std())
+
+                # calculate outliers
+                IQR = tab[k].quantile(0.75) - tab[k].quantile(0.25)
+                lo_bar = tab[k].median() - 1.5*IQR
+                hi_bar = tab[k].median() + 1.5*IQR
+
+                value_props = tab[k].loc[(tab[k] > hi_bar) | (tab[k] < lo_bar)].to_list() # could save fit kernle from distplot?
+
+
+                if verbose:
+                    print(k, ':')
+                    print('  p_nan: {:.2f}'.format(tab[k].isna().sum()/tab.shape[0]))
+                    print('  outliers: ', np.unique(value_props))
+
+                # add distplot
+                sns.distplot(tab[k], label=central_summary+spread, ax=ax)
+                ax.legend()
+                ax.set_xlabel('') # replace with title
+                ax.set_title(k)
+
+            elif v[1] == 'categorical':
+
+                dt = raw_md[k].value_counts(normalize=True, dropna=False).reset_index()
+                dt['index'] = dt['index'].astype(str) # force nan to show up on plot
+                value_props = dt.to_dict()
+
+                if verbose:
+                    print(k, ':')
+                    print('  p_nan: {:.2f}'.format(tab[k].isna().sum()/tab.shape[0]))
+                    print('  value_props: ', np.unique(value_props))
+
+                # add barplot 
+                sns.barplot(x='index', y=k, data=dt, ax=ax)
+                ax.set_ylabel('Proportion')
+                ax.set_xlabel('')
+                ax.set_title(k)
+
+            else:
+                raise NotImplementedError
+                print('Variable could not be processed as instructions for {} not implemented.'.format(v[1]))
+
+            fig.tight_layout()
+            # store data
+            dtt = pd.DataFrame({'Variable':k, 
+                                'Type':v[1],
+                                'value_props_OR_outliers':None, 
+                                'p_nan':tab[k].isna().sum()/tab.shape[0]}, 
+                               index=[0])
+            dtt.at[0, 'value_props_OR_outliers'] = value_props
+            summary = summary.append(dtt, ignore_index=True)
+
+            if plot_out is not None:
+                fig.savefig(plot_out, dpi=600, bbox_inches='tight')
+
+            if summary_out is not None:
+                summary.to_csv(summary_out)
+
+        return summary
+        
+    def md_filters(self, x_i, f, verbose=True):
+        # filters
+        def nan2n(x, n=7):
+            return x.replace([np.nan], int(n))
+
+        def mean_impute(x):
+            return x_i.fillna(x_i.mean()) # nanmean
+
+        def n2nan(x, n=-99):
+            return x.replace([int(n)], np.nan)
+
+        def n2n(x, n1=2, n2=0):
+            return x.replace(n1, n2)
+
+        def absval(x):
+            return x.abs()
+
+        # flow
+        if 'nan2' in f:
+            x_i = nan2n(x_i, n=f.split('nan2')[1])
+        elif '2nan' in f:
+            x_i = n2nan(x_i, n=f.split('2nan')[0])
+        elif f == 'mean_impute': # technically erroneous because need train/test split info
+            x_i = mean_impute(x_i)
+        elif 'to' in f:
+            x_i = n2n(x_i, n1=f.split('to')[0], n2=f.split('to')[1])
+        elif f == 'absval':
+            x_i = absval(x_i)
+        elif 'binarize_is' in f:
+            flag = f.split('binarize_is_')[1]
+            x_i = (x_i == flag).astype(int)
+        elif 'binarize_not' in f:
+            flag = f.split('binarize_is_')[1]
+            x_i = (x_i != flag).astype(int)
         else:
-            print('{} dict key not found or sorted')
+            warnings.warn('Warning. Transform not recognized')
+            if verbose:
+                print('  \nTransformation for {} variable skipped.\n'.format(x_i.name))
+        return x_i
 
-    return {k:data[k] for k in train_keys}, {k:data[k] for k in test_keys}
+
+    def pp_metadata(self, md, voi, out_file=None):
+        '''Pre-process metadata csv.
+
+        Arguments:
+          md (pd.DataFrame): metadata read in with record_id as pid from csv file
+          voi (dict): keys are variable name in metadata and values are tuples, specifying
+            (transform, dtype) where transform is a string for a function and dtype is categorical
+            or continuous. All continuous var will be stored as np.float32, and categorical is a flag
+            to later one-hot-encode (non-ordinal numbers can still be stored). Transform can have
+        '''
+        ppmd = pd.DataFrame()
+        ppmd['record_id'] = md['record_id']
+
+        for i, (k, v) in enumerate(voi.items()):
+            x_i = md[k]
+            if v[0] is not None:
+                for f in v[0]:
+                    x_i = md_filters(x_i, f)
+
+            # type to save
+            if v[1] == 'categorical':
+                x_i = x_i.astype(str)
+            elif v[1] == 'continuous':
+                x_i = x_i.astype(np.float32) # single precision
+            else:
+                warnings.warn('Warning. Data type not recognized')
+                print('\nData type for {} left as default type\n'.format(k))
+            ppmd[k] = x_i
+
+        if out_file is not None:
+            metadata = {}
+            metadata['md'] = ppmd
+            metadata['variables'] = voi
+            with open(out_file, 'wb') as f:
+                pickle.dump(metadata, f, protocol=pickle.HIGHEST_PROTOCOL)
+                f.close()
+        return ppmd
+    
+    def add_labels_to_data():
+        for k in self.data.keys():
+            pid = int(k.split('_')[0])
+            dt = self.md.loc[self.md['record_id']==pid, :]
+            if dt.shape[0] != 1:
+                warnings.warn('Problem with metadata')
+                self.exclude['md_mismatch'].append(k)
+                print('Check {} in self.data'.format(k))
+            labels = {col: dt.iloc[0, j] for j, col in enumerate(dt.columns)} 
+            self.data[k]['md'] = labels
+            
+    def transform_logpseudocount(self, data_keys=['light', 'activity']):
+        '''Transform light and activity
+        '''
+        def logpseudocount(x):
+            return np.log(x + 1.0)
+        
+        # loop through all data
+        for k in self.data.keys():
+            for data_cat in data_keys:
+                self.data[k][data_cat] = logpseudocount(self.data[k][data_cat])        
+
+def save_raw2df(filename):
+    rawdata = raw2df()
+    outs = {'data': rawdata.data, 'md_summary': rawdata.md_summary, 'voi': rawdata.voi}
+    with open(filename, 'wb') as f:
+        pickle.dump(outs, f, protocol=pickle.HIGHEST_PROTOCOL)
+        f.close()
+    print('Data written to {}'.format(filename)) 
+    return rawdata
+            
+            
+            
+            
+            
+            
+            
+            
 
 def pad_align_transform(data):
     X = np.empty((len(data.keys()), 24*60))
@@ -255,96 +457,9 @@ def get_train_test_yID():
     X_test, y_test = pad_align_transform_yID(data_test)
     return {'X_train':X_train, 'y_train':y_train, 'X_test':X_test, 'y_test':y_test}
 
-# preoprocess metadata
-def nan2n(x_i, n=7):
-    x_i = x_i.replace([np.nan], int(n))
-    return x_i
 
-def mean_impute(x_i):
-    x_i = x_i.fillna(x_i.mean())
-    return x_i
+# @metadata
 
-def n2nan(x_i, mean_impute_after=True, n=-99):
-    x_i = x_i.replace([int(n)], np.nan)
-    if mean_impute_after:
-        x_i = mean_impute(x_i)
-    return x_i
-
-def md_filters(x_i, f):
-    if 'nan2' in f:
-        x_i = nan2n(x_i, n=f.split('nan2')[1])
-    elif '2nan' in f:
-        x_i = n2nan(x_i, n=f.split('2nan')[0])
-    elif f == 'mean_impute': # technically erroneous because need train/test split info
-        x_i = mean_impute(x_i)
-    else:
-        warnings.warn('Warning. Transform not recognized')
-        print('  \nTransformation for {} variable skipped.\n'.format(x_i.name))
-    return x_i
-
-def md_data_keymatch(data, md, fix_key=True, del_unmatched_data=True):
-    if fix_key:
-        # fix a particular key:
-        try:
-            data['1276-20'] = data['p1276_2014-20']
-            del data['p1276_2014-20']
-        except KeyError:
-            pass
-    pid = [k.split('-')[0] for k in data.keys()]
-    if del_unmatched_data:
-        for k in [i for i in data.keys() if i.split('-')[0] not in md['record_id'].astype(str).to_list()]:
-            warnings.warn('Warning. Data-metadata mismatch on key')
-            print('  removed {} since it is not in metadata'.format(k))
-            del data[k]
-    return data, md.loc[md['record_id'].astype(str).isin(pid), :]
-
-def pp_metadata(md, voi, pids2keep=None, out_file=None):
-    '''Pre-process metadata and store in pkl with dataframe and variable info.
-
-    TODO:
-      - (enhancement): add more lists of transforms, e.g., ['nan2-99', 'lt182dob', 'logpseudocount']
-        applied in series
-
-    Arguments:
-      md (pd.DataFrame): metadata read in with record_id as pid from csv file
-      voi (dict): keys are variable name in metadata and values are tuples, specifying
-        (transform, dtype) where transform is a string for a function and dtype is categorical
-        or continuous. All continuous var will be stored as np.float32, and categorical is a flag
-        to later one-hot-encode (non-ordinal numbers can still be stored). Transform can have
-    '''
-    if pids2keep is not None:
-        # filter out erroneous data by pid (alternatively, metadata may already be filtered)
-        md = md.loc[md['record_id'].isin(pids2keep), :]
-
-    ppmd = pd.DataFrame()
-    ppmd['record_id'] = md['record_id']
-
-    for i, (k, v) in enumerate(voi.items()):
-        x_i = md[k]
-        if v[0] is not None:
-            if isinstance(v[0], list):
-                for f in v[0]:
-                    x_i = md_filters(x_i, f)
-            else:
-                x_i = md_filters(x_i, v[0])
-        # type to save
-        if v[1] == 'categorical':
-            x_i = x_i.astype(str)
-        elif v[1] == 'continuous':
-            x_i = x_i.astype(np.float32) # single precision
-        else:
-            warnings.warn('Warning. Date type not recognized')
-            print('\nData type for {} left as default type\n'.format(k))
-        ppmd[k] = x_i
-
-    if out_file is not None:
-        metadata = {}
-        metadata['md'] = ppmd
-        metadata['variables'] = voi
-        with open(out_file, 'wb') as f:
-            pickle.dump(metadata, f, protocol=pickle.HIGHEST_PROTOCOL)
-            f.close()
-    return ppmd
 
 def load_data_md(dfp, onehot_md=False):
     '''Load filtered cohort and metadata columns by PID for modeling.
@@ -359,126 +474,7 @@ def load_data_md(dfp, onehot_md=False):
     # load metadata
     md = load_rawmd(filepath=md_file)
     ppdata, md = md_data_keymatch(data, md)
-    voi = {# demographics
-            'age_enroll': (['22nan', 'mean_impute'], 'continuous'),
-            'marital': ('nan27', 'categorical'),
-            'gestage_by': ('nan2-99', 'categorical'),
-            'insur': ('nan2-99', 'categorical'),
-            'ethnicity': ('nan23', 'categorical'),
-            'race': ('nan27', 'categorical'),
-            'bmi_1vis': ('mean_impute', 'continuous'),
-            'prior_ptb_all': ('nan25', 'categorical'),
-            'fullterm_births': ('nan25', 'categorical'),
-            'surghx_none': ('nan20', 'categorical'),
-            'alcohol': ('nan22', 'categorical'),
-            'smoke': ('nan22', 'categorical'),
-            'drugs': ('nan22', 'categorical'),
-            'hypertension': ('nan22', 'categorical'),
-            'pregestational_diabetes': ('nan22', 'categorical'),
-
-            # chronic conditions (?)
-            'asthma_yes___1': (None, 'categorical'), # asthma
-            'asthma_yes___2': (None, 'categorical'), # diabetes
-            'asthma_yes___3': (None, 'categorical'), # gestational hypertension
-            'asthma_yes___4': (None, 'categorical'), # CHTN
-            'asthma_yes___5': (None, 'categorical'), # anomaly
-            'asthma_yes___6': (None, 'categorical'), # lupus
-            'asthma_yes___7': (None, 'categorical'), # throid disease
-            'asthma_yes___8': (None, 'categorical'), # heart disease
-            'asthma_yes___9': (None, 'categorical'), # liver disease
-            'asthma_yes___10': (None, 'categorical'), # renal disease
-            'asthma_yes___13': (None, 'categorical'), # IUGR
-            'asthma_yes___14': (None, 'categorical'), # polyhraminios
-            'asthma_yes___15': (None, 'categorical'), # oligohydraminos
-            'asthma_yes___18': (None, 'categorical'), # anxiety
-            'asthma_yes___19': (None, 'categorical'), # depression
-            'asthma_yes___20': (None, 'categorical'), # anemia
-            'other_disease': ('nan22', 'categorical'),
-            'gestational_diabetes': ('nan22', 'categorical'),
-            'ghtn': ('nan22', 'categorical'),
-            'preeclampsia': ('nan22', 'categorical'),
-            'rh': ('nan22', 'categorical'),
-            'corticosteroids': ('nan22', 'categorical'),
-            'abuse': ('nan23', 'categorical'),
-            'assist_repro': ('nan23', 'categorical'),
-            'gyn_infection': ('nan22', 'categorical'),
-            'maternal_del_weight': ('-992nan', 'continuous'),
-            'ptb_37wks': ('nan22', 'categorical'),
-
-            # vitals and labs @admission
-            'cbc_hct': ('-992nan', 'continuous'), # NOTE: some of these shouldn't be negative, need some filtering
-            'cbc_wbc': ('-992nan', 'continuous'),
-            'cbc_plts': ('-992nan', 'continuous'),
-            'cbc_mcv': ('-992nan', 'continuous'),
-            'art_ph': ('-992nan', 'continuous'),
-            'art_pco2': ('-992nan', 'continuous'),
-            'art_po2': ('-992nan', 'continuous'),
-            'art_excess': ('-992nan', 'continuous'),
-            'art_lactate': ('-992nan', 'continuous'),
-            'ven_ph': ('-992nan', 'continuous'),
-            'ven_pco2': ('-992nan', 'continuous'),
-            'ven_po2': ('-992nan', 'continuous'),
-            'ven_excess': ('-992nan', 'continuous'),
-            'ven_lactate': ('-992nan', 'continuous'),
-            'anes_type': ('-992nan', 'continuous'),
-            'epidural': ('nan20', 'categorical'),
-            'deliv_mode': ('nan24', 'categorical'),
-
-            # infant things
-            'infant_wt': ('-992nan', 'continuous'), # kg
-            'infant_length': ('-992nan', 'continuous'),
-            'head_circ': ('-992nan', 'continuous'),
-            'death_baby': ('nan20', 'categorical'),
-            'neonatal_complication': (['22nan', 'nan20'], 'categorical'),
-
-            # postpartum
-            'ervisit': ('nan20', 'categorical'),
-            'ppvisit_dx': ('nan26', 'categorical'),
-
-            # surveys
-            'education1': ('nan2-99', 'categorical'),
-            'paidjob1': ('nan20', 'categorical'),
-            'work_hrs1': ('nan2-99', 'categorical'),
-            'income_annual1': ('nan2-99', 'categorical'),
-            'income_support1': ('nan2-99', 'categorical'),
-            'regular_period1': ('nan2-88', 'categorical'),
-            'period_window1': ('nan2-88', 'categorical'),
-            'menstrual_days1': ('nan2-88', 'categorical'),
-            'bc_past1': ('nan20', 'categorical'),
-            'bc_years1': (['882nan', 'nan2-88'], 'categorical'),
-            'months_noprego1': ('nan24', 'categorical'),
-            'premature_birth1': ('nan2-88', 'categorical'),
-            'stress3_1': ('nan2-99', 'categorical'),
-            'workreg_1trim': ('nan20', 'categorical'),
-
-            'choosesleep_1trim': ('nan2-99', 'categorical'),
-            'slpwake_1trim': ('nan2-99', 'categorical'),
-            'slp30_1trim': ('nan2-99', 'categorical'),
-            'sleep_qual1': ('nan2-99', 'categorical'),
-            'slpenergy1': ('nan2-99', 'categorical'),
-            ## epworth (sum), for interpretation: https://epworthsleepinessscale.com/about-the-ess/ (NOTE: convert 4 to np.nan for sum)
-            'sitting1': ('nan20', 'categorical'), ### TODO: add fx to sum this from metadata, then convert to continuous label for regression
-            'tv1': ('nan20', 'categorical'),
-            'inactive1': ('nan20', 'categorical'),
-            'passenger1': ('nan20', 'categorical'),
-            'reset1': ('nan20', 'categorical'),
-            'talking1': ('nan20', 'categorical'),
-            'afterlunch1': ('nan20', 'categorical'),
-            'cartraffic1': ('nan20', 'categorical'),
-            ## edinburgh depression scale
-            'edinb1_1trim': ('nan2-99', 'categorical'),
-            'edinb2_1trim': ('nan2-99', 'categorical'),
-            'edinb3_1trim': ('nan2-99', 'categorical'),
-            'edinb4_1trim': ('nan2-99', 'categorical'),
-            'edinb5_1trim': ('nan2-99', 'categorical'),
-            'edinb6_1trim': ('nan2-99', 'categorical'),
-            'edinb7_1trim': ('nan2-99', 'categorical'),
-            'edinb8_1trim': ('nan2-99', 'categorical'),
-            'edinb9_1trim': ('nan2-99', 'categorical'),
-            'edinb10_1trim': ('nan2-99', 'categorical'),
-            ## difficult life circumstances
-            ## sleep diary
-            }
+    
     ppmd = pp_metadata(md, voi)
     
     if onehot_md:
