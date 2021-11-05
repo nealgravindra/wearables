@@ -9,14 +9,17 @@ class Inception(nn.Module):
         super().__init__()
         self.bottleneck = nn.Conv1d(in_channels, bottleneck, 1, padding='same') if bottleneck and in_channels > 0 else lambda x: x# (bug) this is not really a bottleneck layer, REMOVE following: if bottleneck and in_channels > 1 else lambda x: x
         conv_layers = []
-        kss = [kernel_size // (2**i) for i in range(3)] # (enhancement) 360 down to 5 min, for a total of 9 blocks?
+        if isinstance(kernel_size, list):
+            kss = kernel_size 
+        else:
+            kss = [kernel_size // (2**i) for i in range(3)] if not isinstance(kernel_size, list) else kernel_size
         d_mts = bottleneck or in_channels
-        for i in range(len(kss)):
+        for k in kss:
             conv_layers.append(
-                nn.Conv1d(d_mts, nb_filters, kernel_size=kss[i], padding='same')
+                nn.Conv1d(d_mts, nb_filters, kernel_size=k, padding='same')
                 )
         self.conv_layers = nn.ModuleList(conv_layers)
-        self.maxpool = nn.MaxPool1d(3, stride=1, padding=1) # (enhancement) to kernel_size=5?
+        self.maxpool = nn.MaxPool1d(5, stride=1, padding=2)
         self.conv = nn.Conv1d(in_channels, nb_filters, kernel_size=1)
         self.BN = nn.BatchNorm1d(nb_filters * 4)
         self.activation = nn.ReLU() # (bug) original act is ReLU, change to LeakyReLU
@@ -32,11 +35,12 @@ class Inception(nn.Module):
                 out = torch.cat((out, out_), 1)
         mp = self.conv(self.maxpool(input_tensor))
         inc_out = torch.cat((out, mp), 1)
-        return self.activation(self.BN(inc_out)) # order of BN supported by https://arxiv.org/abs/1502.03167 section 3.2
+        return self.activation(self.BN(inc_out)) 
 
 def shortcut_layer(in_channels, out_channels): # not a class in official implementation (https://github.com/hfawaz/InceptionTime/blob/master/classifiers/inception.py)
-    return nn.Sequential(nn.Conv1d(in_channels, out_channels, kernel_size=1),
-                         nn.BatchNorm1d(out_channels))
+    return nn.Sequential(
+        nn.Conv1d(in_channels, out_channels, kernel_size=1),
+        nn.BatchNorm1d(out_channels))
 
 class InceptionBlock(nn.Module):
     def __init__(self, in_channels, bottleneck=16,
@@ -108,7 +112,11 @@ class LSTM(nn.Module):
         self.d_out = d_out
         
         # blocks
-        self.lstm = nn.LSTM(d_in, d_hidden, num_layers=nb_layers)
+        self.lstm = nn.LSTM(d_in, d_hidden, 
+                            num_layers=nb_layers, 
+                            bidirectional=True, 
+                            batch_first=True, 
+                            dropout=0.5)
         self.pred = nn.Sequential(
             nn.Linear(d_in*d_hidden, d_in*d_hidden // 2),
             nn.LeakyReLU(),
@@ -117,8 +125,44 @@ class LSTM(nn.Module):
     
     def forward(self, X):
         # X shape (N, d_in, T) where d_in=data dim (activity counts and light intensity)
-        _, (h_n, _) = self.lstm(X.reshape(self.T, -1, self.d_in))  # or X.transpose(2, 1)
-        return self.pred(h_n.reshape(-1, self.nb_layers*self.d_hidden))
+        _, (h_n, _) = self.lstm(X.transpose(2, 1))
+        # https://discuss.pytorch.org/t/how-to-concatenate-the-hidden-states-of-a-bi-lstm-with-multiple-layers/39798/5
+        ##  h_n = h_n.view(num_layers, num_directions, batch, hidden_size)
+        h_n = h_n.reshape(self.nb_layers, 2, -1, self.d_hidden)[-1]
+        h_n = h_n.reshape(-1, 2*self.d_hidden)
+        return self.pred(h_n)
+    
+class GRU(nn.Module):
+    '''Basic comparison for a 2 layer, final hidden unit clf using LSTM
+    '''
+    def __init__(self, d_in, d_hidden, nb_layers, T, d_out):
+        super().__init__()
+        self.d_in = d_in
+        self.d_hidden = d_hidden
+        self.nb_layers = nb_layers
+        self.T = T
+        self.d_out = d_out
+        
+        # blocks
+        self.gru = nn.GRU(d_in, d_hidden, 
+                            num_layers=nb_layers, 
+                            bidirectional=True, 
+                            batch_first=True, 
+                            dropout=0.5)
+        self.pred = nn.Sequential(
+            nn.Linear(d_in*d_hidden, d_in*d_hidden // 2),
+            nn.LeakyReLU(),
+            nn.Linear(d_in*d_hidden // 2, d_out)
+        )
+    
+    def forward(self, X):
+        # X shape (N, d_in, T) where d_in=data dim (activity counts and light intensity)
+        _, h_n = self.gru(X.transpose(2, 1))
+        # https://discuss.pytorch.org/t/how-to-concatenate-the-hidden-states-of-a-bi-lstm-with-multiple-layers/39798/5
+        ##  h_n = h_n.view(num_layers, num_directions, batch, hidden_size)
+        h_n = h_n.reshape(self.nb_layers, 2, -1, self.d_hidden)[-1]
+        h_n = h_n.reshape(-1, 2*self.d_hidden)
+        return self.pred(h_n)
     
 class CNN(nn.Module):
     '''Call it VGG-1D'''
