@@ -94,7 +94,7 @@ class train():
             lr=self.hyperparams['lr'],
             weight_decay=self.hyperparams['lambda_l2'])
 
-    def get_dataloaders(self, file='/home/ngr4/project/wearables/data/processed/model_data_210929.pkl'):
+    def get_dataloaders(self):
         '''Get train/val/test data.
         '''
         if self.load_splits is None:
