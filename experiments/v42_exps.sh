@@ -2,6 +2,9 @@
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate wearables
-python -u /home/ngrav/project/wearables/scripts/experiments_v42.py --exp="$1" --trial="$2" --cuda_nb=$3 > ./jobs/"$1"_n"$2".log
-
+for i in {1..6}
+do
+  python -u /home/ngrav/project/wearables/scripts/experiments_v42.py --exp="$1" --trial=$i --cuda_nb=$2 > ./jobs/"$1"_n"$i".log
+  echo "done with ""$1"_n"$i"
+done
 exit

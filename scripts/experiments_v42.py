@@ -65,8 +65,8 @@ if __name__ == '__main__':
         trial=trial,
         n_epochs=10000,
         lr=1e-6,
-        patience=2500,
-        min_nb_epochs=2000,
+        patience=250,
+        min_nb_epochs=250,
         out_file='/home/ngrav/project/wearables/results/train_v42.csv',
         model_path='/home/ngrav/scratch/wearables_model_zoo',
         device=torch.device('cuda:{}'.format(cuda_nb)))
