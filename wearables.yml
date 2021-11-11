@@ -1,11 +1,10 @@
-name: /gpfs/ysm/project/dijk/ngr4/conda_envs/wearables
+name: wearables
 channels:
   - pytorch
   - nvidia
   - intel
-  - conda-forge
-  - bioconda
   - defaults
+  - conda-forge
 dependencies:
   - _libgcc_mutex=0.1=conda_forge
   - _openmp_mutex=4.5=1_gnu
@@ -188,9 +187,23 @@ dependencies:
   - zstd=1.4.9=ha95c52a_0
   - pip:
     - adjusttext==0.7.3
+    - asteval==0.9.25
+    - fastdtw==0.3.4
     - future==0.18.2
+    - lmfit==1.0.3
+    - lml==0.1.0
+    - lxml==4.6.3
     - networkx==2.6.2
     - progressbar2==3.53.1
+    - pyactigraphy==1.0
+    - pyexcel==0.6.7
+    - pyexcel-ezodf==0.3.4
+    - pyexcel-io==0.6.5
+    - pyexcel-ods3==0.6.0
     - pygam==0.8.0
     - python-utils==2.5.6
-prefix: /gpfs/ysm/project/dijk/ngr4/conda_envs/wearables
+    - spm1d==0.4.2
+    - stochastic==0.6.0
+    - texttable==1.6.4
+    - uncertainties==3.1.6
+prefix: /home/ngrav/miniconda3/envs/wearables
