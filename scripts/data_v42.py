@@ -439,7 +439,7 @@ class actigraphy(torch.utils.data.Dataset):
     
     
 class torch_dataloaders():
-    def __init__(self, target_name, batch_size=32, filename='/home/ngrav/data/wearables/MOD1000_modeldata.pkl'):
+    def __init__(self, target_name, batch_size=32, filename='/home/ngrav/data/wearables/processed/MOD1000_modeldata.pkl'):
         self.data = self.load_preproced(filename)
         self.target_name = target_name
         self.batch_size = batch_size

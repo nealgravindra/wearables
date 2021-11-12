@@ -1,6 +1,3 @@
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 import sys
 sys.path.append('/home/ngrav/project/')
 from wearables.scripts import utils as wearutils
@@ -10,7 +7,6 @@ from wearables.scripts import train_v42 as weartrain
 from wearables.scripts import eval_v42 as weareval
 
 import torch
-
 import numpy as np
 
 def CNN():
@@ -27,8 +23,8 @@ def IT():
     return net
 
 def LSTM():
-    net = wearmodels.LSTM(2, 64, 3, 10080, 1)
-    return net
+#     net = wearmodels.LSTM(2, 64, 3, 10080, 1)
+    return NotImplementedError # need to add addl_out args
 
 def GRU():
     net = wearmodels.GRU(2, 64, 3, 10080, 1)
@@ -63,11 +59,12 @@ if __name__ == '__main__':
         net, exp=exp,
         criterion=criterion, 
         trial=trial,
+        batch_size=64,
         n_epochs=10000,
         lr=1e-6,
         lambda_l2=1e-3,
-        patience=250,
-        min_nb_epochs=250,
+        patience=500,
+        min_nb_epochs=400,
         out_file='/home/ngrav/project/wearables/results/train_v43.csv',
         model_path='/home/ngrav/scratch/wearables_model_zoo',
         device=torch.device('cuda:{}'.format(cuda_nb)))
