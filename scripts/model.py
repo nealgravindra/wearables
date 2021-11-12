@@ -159,7 +159,7 @@ class GRU(nn.Module):
         self.fc2 = nn.Linear(d_in*d_hidden // 2, d_out)
 
     
-    def forward(self, X, addl_out):
+    def forward(self, X, addl_out=False):
         # X shape (N, d_in, T) where d_in=data dim (activity counts and light intensity)
         _, h_n = self.gru(X.transpose(2, 1))
         # https://discuss.pytorch.org/t/how-to-concatenate-the-hidden-states-of-a-bi-lstm-with-multiple-layers/39798/5
