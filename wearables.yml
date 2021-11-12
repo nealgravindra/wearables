@@ -188,12 +188,14 @@ dependencies:
   - pip:
     - adjusttext==0.7.3
     - asteval==0.9.25
+    - cython==0.29.24
     - fastdtw==0.3.4
     - future==0.18.2
     - lmfit==1.0.3
     - lml==0.1.0
     - lxml==4.6.3
     - networkx==2.6.2
+    - nvidia-htop==1.0.5
     - progressbar2==3.53.1
     - pyactigraphy==1.0
     - pyexcel==0.6.7
@@ -204,6 +206,7 @@ dependencies:
     - python-utils==2.5.6
     - spm1d==0.4.2
     - stochastic==0.6.0
+    - termcolor==1.1.0
     - texttable==1.6.4
     - uncertainties==3.1.6
 prefix: /home/ngrav/miniconda3/envs/wearables
