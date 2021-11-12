@@ -1,7 +1,7 @@
 import sys
 sfp = '/home/ngr4/project/'
 sys.path.append(sfp)
-from wearables.scripts import models_v42 as wearmodels
+from wearables.scripts import model as wearmodels
 from wearables.scripts import data_v42 as weardata
 from wearables.scripts import eval_v42 as weareval
 from wearables.scripts import utils as wearutils
