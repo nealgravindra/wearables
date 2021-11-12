@@ -1,12 +1,16 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 import sys
 sys.path.append('/home/ngrav/project/')
 from wearables.scripts import utils as wearutils
 from wearables.scripts import data_v42 as weardata
-from wearables.scripts import model as wearmodels
+from wearables.scripts import models_v42 as wearmodels
 from wearables.scripts import train_v42 as weartrain
 from wearables.scripts import eval_v42 as weareval
 
 import torch
+
 import numpy as np
 
 def CNN():
@@ -23,8 +27,8 @@ def IT():
     return net
 
 def LSTM():
-#     net = wearmodels.LSTM(2, 64, 3, 10080, 1)
-    return NotImplementedError # need to add addl_out args
+    net = wearmodels.LSTM(2, 64, 3, 10080, 1)
+    return net
 
 def GRU():
     net = wearmodels.GRU(2, 64, 3, 10080, 1)
@@ -52,20 +56,19 @@ if __name__ == '__main__':
     elif 'gru' in exp.lower():
         net = GRU()
     if 'l1' in exp.lower():
-        criterion = weartrain.MSEL1(lambda_l1=0.01)
+        criterion = weartrain.MSEL1()
     
     # train
     trainer = weartrain.train(
         net, exp=exp,
         criterion=criterion, 
         trial=trial,
-        batch_size=64,
         n_epochs=10000,
         lr=1e-6,
-        lambda_l2=1e-3,
+#         lambda_l2=1e-3, 
         patience=500,
         min_nb_epochs=400,
-        out_file='/home/ngrav/project/wearables/results/train_v43.csv',
+        out_file='/home/ngrav/project/wearables/results/train_v42.csv',
         model_path='/home/ngrav/scratch/wearables_model_zoo',
         device=torch.device('cuda:{}'.format(cuda_nb)))
     trainer.fit()
@@ -73,7 +76,7 @@ if __name__ == '__main__':
     # eval
     evaluation = weareval.eval_trained(
         trainer, 
-        out_file='/home/ngrav/project/wearables/results/eval_test_v43.csv')
+        out_file='/home/ngrav/project/wearables/results/eval_test_v42.csv')
     print('{} results:'.format(exp))
     print('--------')
     print(evaluation.eval_performance)
