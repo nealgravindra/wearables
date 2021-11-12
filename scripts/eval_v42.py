@@ -42,6 +42,7 @@ def eval_output(output, target, tasktype='regression'):
 
 class eval_trained():
     def __init__(self, trainer, modelpkl=None, split='test', 
+                 two_outputs=False,
                  out_file=None):
         self.trainer = trainer
         self.exp_name = '{}_{}'.format(self.trainer.exp, self.trainer.trial)
@@ -49,6 +50,8 @@ class eval_trained():
         self.split = split
         self.device = torch.device('cpu')
         self.trainer.model = self.trainer.model.to(self.device)
+        self.trainer.model.eval()
+        self.two_outputs = two_outputs # signal whether weights/attn/embedding also output
         self.get_model_output()
         self.eval_performance = eval_output(self.yhat, self.y, tasktype=trainer.data.tasktype)
         if out_file is not None:
@@ -75,21 +78,31 @@ class eval_trained():
         for i, batch in enumerate(dataloader):
             x, y, idx = batch['x'], batch['y'], batch['id']
 
-            output = self.trainer.model(x)
+            if self.two_outputs:
+                output, addl_out = self.trainer.model(x, addl_out=True)
+            else:
+                output = self.trainer.model(x)
             if self.trainer.data.tasktype == 'regression':
                 output = output.squeeze()
             if i==0:
                 y_total = y.detach()
                 idx_total = idx
                 yhat_total = output.detach()
+                if self.two_outputs:
+                    out2_total = addl_out.detach()
             else:
                 y_total = torch.cat((y_total, y.detach()), dim=0)
                 idx_total = idx_total + idx
                 yhat_total = torch.cat((yhat_total, output.detach()), dim=0)
+                if self.two_outputs:
+                    out2_total = torch.cat((out2_total, addl_out.detach()), dim=0)
+                    
         # store
         self.y = y_total
         self.yhat = yhat_total
         self.id = idx_total
+        if self.two_outputs:
+            self.out2 = out2_total
         if 'MSELoss' in str(self.trainer.criterion.__class__) or 'NLLLoss' in str(self.trainer.criterion.__class__):
             self.loss_test = self.trainer.criterion(output, y).item()
         else:
