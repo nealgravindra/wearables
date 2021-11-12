@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# source ~/miniconda3/etc/profile.d/conda.sh
-source activate wearables
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate wearables
 mkdir -p ./jobs/
 
 for i in {1..6}
