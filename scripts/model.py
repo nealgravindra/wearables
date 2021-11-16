@@ -214,7 +214,7 @@ class CNN(nn.Module):
         X = self.vgg(X)
         X = self.drop1(self.act1(self.fc1(X)))
         if addl_out:
-            self.fc2(X), X
+            return self.fc2(X), X
         else:
             return self.fc2(X)
         

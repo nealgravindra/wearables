@@ -75,8 +75,10 @@ class eval_trained():
             self.trainer.model.load_state_dict(
                 torch.load(self.modelpkl, map_location=self.device))
         self.trainer.model.eval()
+        dataloader.num_workers = 1
         for i, batch in enumerate(dataloader):
             x, y, idx = batch['x'], batch['y'], batch['id']
+            tic = time.time()
 
             if self.two_outputs:
                 output, addl_out = self.trainer.model(x, addl_out=True)
@@ -95,7 +97,7 @@ class eval_trained():
                 idx_total = idx_total + idx
                 yhat_total = torch.cat((yhat_total, output.detach()), dim=0)
                 if self.two_outputs:
-                    out2_total = torch.cat((out2_total, addl_out.detach()), dim=0)
+                    out2_total = torch.cat((out2_total, addl_out.detach()), dim=0)            
                     
         # store
         self.y = y_total
