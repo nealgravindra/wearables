@@ -67,8 +67,11 @@ class train():
             hyperparams['criterion'] = nn.MSELoss()
         if 'min_nb_epochs' not in hyperparams.keys():
             hyperparams['min_nb_epochs'] = 2000
+        if 'shuffle_label' not in hyperparams.keys():
+            hyperparams['shuffle_label'] = False
         self.hyperparams = hyperparams
         
+        print('  note: running with following specifications: ', hyperparams)
         self.out_file = out_file
         if exp is None:
             exp = str(model.__class__).split('.')[-1][:-2] # model name
@@ -81,6 +84,7 @@ class train():
         self.patience = self.hyperparams['patience']
         self.nb_epochs = self.hyperparams['nb_epochs']
         self.min_nb_epochs = self.hyperparams['min_nb_epochs']
+        self.shuffle_label = self.hyperparams['shuffle_label']
         self.device = device
         if device.type == 'cuda':
             torch.cuda.empty_cache()
@@ -134,6 +138,8 @@ class train():
             # train
             for i, batch in enumerate(self.data.train_dl):
                 x, y, idx = batch['x'], batch['y'], batch['id']
+                if self.shuffle_label:
+                    y = y[torch.randperm(y.shape[0])] 
                 x = x.to(self.device)
                 y = y.to(self.device)
 

@@ -54,20 +54,36 @@ if __name__ == '__main__':
     if 'l1' in exp.lower():
         criterion = weartrain.MSEL1(lambda_l1=0.01)
     
-    # train
-    trainer = weartrain.train(
-        net, exp=exp,
-        criterion=criterion, 
-        trial=trial,
-        batch_size=64,
-        n_epochs=10000,
-        lr=1e-6,
-        lambda_l2=1e-3,
-        patience=500,
-        min_nb_epochs=400,
-        out_file='/home/ngrav/project/wearables/results/train_v43.csv',
-        model_path='/home/ngrav/scratch/wearables_model_zoo',
-        device=torch.device('cuda:{}'.format(cuda_nb)))
+    # trainer
+    if 'rand' in exp.lower():
+        trainer = weartrain.train(
+            net, exp=exp,
+            criterion=criterion, 
+            trial=trial,
+            batch_size=64,
+            nb_epochs=400,
+            lr=1e-6,
+            lambda_l2=1e-3,
+            patience=None,
+            min_nb_epochs=0,
+            shuffle_label=True,
+            out_file='/home/ngrav/project/wearables/results/train_v43.csv',
+            model_path='/home/ngrav/scratch/wearables_model_zoo',
+            device=torch.device('cuda:{}'.format(cuda_nb)))
+    else:
+        trainer = weartrain.train(
+            net, exp=exp,
+            criterion=criterion, 
+            trial=trial,
+            batch_size=64,
+            nb_epochs=10000,
+            lr=1e-6,
+            lambda_l2=1e-3,
+            patience=500,
+            min_nb_epochs=400,
+            out_file='/home/ngrav/project/wearables/results/train_v43.csv',
+            model_path='/home/ngrav/scratch/wearables_model_zoo',
+            device=torch.device('cuda:{}'.format(cuda_nb)))
     trainer.fit()
     
     # eval
