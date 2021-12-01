@@ -95,7 +95,7 @@ class eval_trained():
             else:
                 y_total = torch.cat((y_total, y.detach()), dim=0)
                 idx_total = idx_total + idx
-                yhat_total = torch.cat((yhat_total, output.detach()), dim=0)
+                yhat_total = torch.cat((yhat_total, output.detach().reshape(-1, )), dim=0)
                 if self.two_outputs:
                     out2_total = torch.cat((out2_total, addl_out.detach()), dim=0)            
                     
@@ -129,6 +129,9 @@ class eval_trained():
             dt.to_csv(file, mode='a', header=True)
         else:
             dt.to_csv(file)
+            
+            
+
         
 
 '''

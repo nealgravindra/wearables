@@ -97,7 +97,7 @@ def data_from_trainer(trainer_fp, split='train'):
     else:
         warnings.warn('Unique identifier data sample mismatch')
     
-    return X, md
+    return X, md, trainer
 
         
 def pairwise_DTW(X, verbose=False):
@@ -111,12 +111,17 @@ def pairwise_DTW(X, verbose=False):
         print('N={}\tT={}\t{:.0f}s'.format(X.shape[0], X.shape[1], time.time() - tic))
     return D
 
-def embed(D, method='umap', verbose=False):
+def embed(D, method='umap', metric='precomputed', verbose=False):
+    '''
+    Arguments:
+      D (np.ndarray): shape (N x N) if distance matrix OR (N x M) for feature mat
+      metric (str) [optional, Default='precomputed']: indicate whether D is distance or feat mat
+    '''
     if verbose:
         print('\nStarting embedding ({} method)'.format(method))
         tic = time.time()
     if 'umap' in method.lower():
-        data_embedding = umap.UMAP(metric='precomputed').fit_transform(D)
+        data_embedding = umap.UMAP(metric=metric).fit_transform(D)
     else:
         raise NotImplementedError
     if verbose:
