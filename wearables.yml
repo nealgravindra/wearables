@@ -3,8 +3,8 @@ channels:
   - pytorch
   - nvidia
   - intel
-  - defaults
   - conda-forge
+  - defaults
 dependencies:
   - _libgcc_mutex=0.1=conda_forge
   - _openmp_mutex=4.5=1_gnu
@@ -188,9 +188,11 @@ dependencies:
   - pip:
     - adjusttext==0.7.3
     - asteval==0.9.25
-    - cython==0.29.24
     - fastdtw==0.3.4
     - future==0.18.2
+    - igraph==0.9.8
+    - leiden==1.0.1
+    - leidenalg==0.8.8
     - lmfit==1.0.3
     - lml==0.1.0
     - lxml==4.6.3
@@ -203,6 +205,7 @@ dependencies:
     - pyexcel-io==0.6.5
     - pyexcel-ods3==0.6.0
     - pygam==0.8.0
+    - python-igraph==0.9.8
     - python-utils==2.5.6
     - spm1d==0.4.2
     - stochastic==0.6.0

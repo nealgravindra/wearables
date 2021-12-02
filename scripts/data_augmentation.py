@@ -7,28 +7,12 @@ Basic ts augmentations are drawn from survey paper results,
   REF: Iwana & Uchida, PLoS ONE, 2021 with code: 
   https://github.com/uchidalab/time_series_augmentation/blob/master/utils/augmentation.py
 '''
-
-import torch
+import time
+import warnings
 import numpy as np
-
-def augment_data(data_input, mode='random'):
-    '''Applies transformations to mb data
-
-    Arguments:
-      mode (str) [optional, Default='random']: whether
-        to apply randomly or a specific type or all in bank.
-        Options are one of ['random', 'all', 'scaling', 'slicing',
-        'jitter', 'windowwarping', 'none'] or their abbreviations, ['random',
-        'all', 'Sc', 'Sl', 'WW', 'J', 'N']
-
-      
-    '''
-    if mode.lower() == 'random':
-        print('not implemented')
-    elif mode.lower() == 'all':
-        print('do all')
-
-    return data_output
+import random
+import torch
+import torch.nn.functional as F
 
 def jitter(x, mu=0.0, sigma=0.03):
     return x + torch.normal(mu, sigma, size=x.size())
@@ -57,36 +41,79 @@ def slicing(x, target_ratio=0.9, target_len=None):
     else:
         target_ratio = x.shape[2] / target_len
     start = torch.randint(high=(x.shape[2] - target_len), size=(x.shape[0], ))
-    end = (target_len + strt)
+    end = (target_len + start)
     # interpolation 
     xprime = torch.zeros_like(x)
     for i, ts in enumerate(x):
-        for dim in range(x.shape[1]):
-            xprime[i, dim, :] = 
+        xprime[i, :, :] = F.interpolate(x[i, :, start[i]:end[i]].unsqueeze(0), (x.shape[2]), mode='linear')
     return xprime
     
-    # old    
-    for i, pat in enumerate(x):
-        for dim in range(x.shape[2]):
-            ret[i,:,dim] = np.interp(np.linspace(0, target_len, num=x.shape[1]), np.arange(target_len), pat[starts[i]:ends[i],dim]).T
-    return ret
+def window_warping(x, window_ratio=0.1, scales=[0.5, 2.]):
+    warp_scale = torch.tensor(np.random.choice(scales, x.shape[0]), dtype=torch.float32)
+    warp_size = int(window_ratio * x.shape[2])
+    
+    window_starts = torch.randint(low=1, high=x.shape[2] - warp_size - 1, size=(x.shape[0], ))
+    window_ends = (window_starts + warp_size)
+    
+    # interpolation 
+    xprime = torch.zeros_like(x)
+    for i, ts in enumerate(x):
+        start_seg = x[i, :, :window_starts[i]]
+        window_seg = F.interpolate(x[i, :, window_starts[i]:window_ends[i]].unsqueeze(0), 
+                                   scale_factor=warp_scale[i].item(), mode='linear').squeeze()
+        end_seg = x[i, :, window_ends[i]:]
+        warped = torch.cat((start_seg, window_seg, end_seg), dim=-1)
+        xprime[i, :, :] = F.interpolate(warped.unsqueeze(0), size=(x.shape[2]), mode='linear')
+    return xprime
 
-# NOT EDITED
-def window_warp(x, window_ratio=0.1, scales=[0.5, 2.]):
-    # https://halshs.archives-ouvertes.fr/halshs-01357973/document
-    warp_scales = np.random.choice(scales, x.shape[0])
-    warp_size = np.ceil(window_ratio*x.shape[1]).astype(int)
-    window_steps = np.arange(warp_size)
-        
-    window_starts = np.random.randint(low=1, high=x.shape[1]-warp_size-1, size=(x.shape[0])).astype(int)
-    window_ends = (window_starts + warp_size).astype(int)
-            
-    ret = np.zeros_like(x)
-    for i, pat in enumerate(x):
-        for dim in range(x.shape[2]):
-            start_seg = pat[:window_starts[i],dim]
-            window_seg = np.interp(np.linspace(0, warp_size-1, num=int(warp_size*warp_scales[i])), window_steps, pat[window_starts[i]:window_ends[i],dim])
-            end_seg = pat[window_ends[i]:,dim]
-            warped = np.concatenate((start_seg, window_seg, end_seg))                
-            ret[i,:,dim] = np.interp(np.arange(x.shape[1]), np.linspace(0, x.shape[1]-1., num=warped.size), warped).T
-    return ret
+
+def augment_data(data, mode=['random'], verbose=False):
+    '''Applies transformations to mb data
+
+    Arguments:
+      mode (list) [optional, Default='random']: whether
+        to apply randomly or a specific type or all in list.
+        Options are one of ['random', 'all', 'scaling', 'slicing',
+        'jitter', 'windowwarping', 'none'] or their abbreviations, ['random',
+        'all', 'Sc', 'Sl', 'WW', 'J', 'N']. IF supplying random or all, only pass those.
+      apply_per_epoch (bool) [optional, Default=False]: if apply per minibatch, shuffle list
+        if apply per epoch, return list of and re-shuffle it at start of next epoch
+
+      
+    '''
+    if verbose:
+        print('Transforms requested: {}'.format(mode))
+        tic = time.time()
+    augapplied = []  
+    transform_bank = ['N', 'Sc', 'Sl', 'WW', 'J']
+    for i, augtype in enumerate(mode):
+        if verbose:
+            print('  applying {}'.format(augtype))
+        if augtype == 'random':
+            data, augapplied = augment_data(data, mode=[np.random.choice(transform_bank)])
+            break
+        elif augtype == 'all': # assume first pass
+            random.shuffle(transform_bank)
+            data, augapplied = augment_data(data, mode=transform_bank)
+            break
+        elif augtype == 'N':
+            augapplied.append(augtype)
+            continue
+        elif augtype == 'Sc':
+            augapplied.append(augtype)
+            data = scaling(data)
+        elif augtype == 'Sl':
+            augapplied.append(augtype)
+            data = slicing(data)
+        elif augtype == 'WW':
+            augapplied.append(augtype)
+            data = window_warping(data)
+        elif augtype == 'J':
+            augapplied.append(augtype)
+            data = jitter(data)
+        else:
+            warnings.warn('Augmentation requested but not implemented')
+            print('No {} transformation available'.format(augtype))
+    if verbose:
+        print('  ... applied {} in {:.0f}-s'.format(augapplied, time.time() - tic))
+    return data, augapplied

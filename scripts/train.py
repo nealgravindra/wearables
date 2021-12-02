@@ -5,6 +5,7 @@ from wearables.scripts import model as wearmodels
 from wearables.scripts import data_v42 as weardata
 from wearables.scripts import eval_v42 as weareval
 from wearables.scripts import utils as wearutils
+from wearables.scripts import data_augmentation as aug
 
 import torch
 import torch.nn as nn
@@ -69,6 +70,10 @@ class train():
             hyperparams['min_nb_epochs'] = 2000
         if 'shuffle_label' not in hyperparams.keys():
             hyperparams['shuffle_label'] = False
+        if 'aug_mode' not in hyperparams.keys():
+            hyperparams['aug_mode'] = ['random'] 
+        if 'aug_per_epoch' not in hyperparams.keys():
+            hyperparams['aug_per_epoch'] = False
         self.hyperparams = hyperparams
         
         print('  note: running with following specifications: ', hyperparams)
@@ -85,6 +90,8 @@ class train():
         self.nb_epochs = self.hyperparams['nb_epochs']
         self.min_nb_epochs = self.hyperparams['min_nb_epochs']
         self.shuffle_label = self.hyperparams['shuffle_label']
+        self.aug_mode = self.hyperparams['aug_mode']
+        self.aug_per_epoch = self.hyperparams['aug_per_epoch']
         self.device = device
         if device.type == 'cuda':
             torch.cuda.empty_cache()
@@ -138,6 +145,14 @@ class train():
             # train
             for i, batch in enumerate(self.data.train_dl):
                 x, y, idx = batch['x'], batch['y'], batch['id']
+                if self.aug_mode is not None:
+                    if not self.aug_per_epoch:
+                        x, _ = aug.augment_data(x, mode=self.aug_mode)
+                    else:
+                        if i == 0:
+                            x, augsapplied = aug.augment_data(x, mode=self.aug_mode)
+                        else:
+                            x, _ = aug.augment_data(x, mode=augsapplied)
                 if self.shuffle_label:
                     y = y[torch.randperm(y.shape[0])] 
                 x = x.to(self.device)
