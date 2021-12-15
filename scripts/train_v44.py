@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import os
-import dill as pickle
+import pickle
 import numpy as np
 import datetime
 import pandas as pd
@@ -58,14 +58,14 @@ class train():
             hyperparams['batch_size'] = 32
         if 'lr' not in hyperparams.keys():
             hyperparams['lr'] = 0.001
-        if 'lambda_l1' not in hyperparams.keys():
-            hyperparams['lambda_l1'] = 5e-4
         if 'lambda_l2' not in hyperparams.keys():
             hyperparams['lambda_l2'] = 5e-4
         if 'nb_epochs' not in hyperparams.keys():
             hyperparams['nb_epochs'] = 10000
         if 'patience' not in hyperparams.keys():
             hyperparams['patience'] = 2500
+        if 'criterion' not in hyperparams.keys():
+            hyperparams['criterion'] = nn.MSELoss()
         if 'min_nb_epochs' not in hyperparams.keys():
             hyperparams['min_nb_epochs'] = 2000
         if 'shuffle_label' not in hyperparams.keys():
@@ -99,7 +99,7 @@ class train():
         # data
         self.get_dataloaders()
         self.model = model.to(self.device)
-        self.criterion = MSEL1(lambda_l1=hyperparams['lambda_l1'])
+        self.criterion = hyperparams['criterion']#MSEL1(lambda_l1=hyperparams['lambda_l1'])
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.hyperparams['lr'],
@@ -247,7 +247,6 @@ class train():
                 with open(os.path.join(self.model_path, 
                                        'trainer_{}{}.pkl'.format(self.exp, self.trial)), 'wb') as f:
                     pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
-                    f.close()
         
         print('\nOptimization finished!\tBest epoch: {}\tMax epoch: {}'.format(best_epoch, epoch))
         print('  exp: {}\ttrial: {}'.format(self.exp, self.trial))

@@ -3,7 +3,7 @@ sys.path.append('/home/ngrav/project/')
 from wearables.scripts import utils as wearutils
 from wearables.scripts import data_v42 as weardata
 from wearables.scripts import model as wearmodels
-from wearables.scripts import train_v44 as weartrain
+from wearables.scripts import train as weartrain
 from wearables.scripts import eval_v42 as weareval
 
 import torch
@@ -53,8 +53,6 @@ if __name__ == '__main__':
         net = LSTM()
     elif 'gru' in exp.lower():
         net = GRU()
-    if 'l1' in exp.lower():
-        criterion = weartrain.MSEL1(lambda_l1=0.001)
     if 'randaug' in exp.lower():
         aug_mode = ['random']
     elif 'allaug' in exp.lower():
@@ -71,7 +69,6 @@ if __name__ == '__main__':
     if 'labelshuffle' in exp.lower():
         trainer = weartrain.train(
             net, exp=exp,
-            criterion=criterion, 
             trial=trial,
             batch_size=batch_size,
             nb_epochs=400,
@@ -82,23 +79,23 @@ if __name__ == '__main__':
             patience=None,
             min_nb_epochs=0,
             shuffle_label=True,
-            out_file='/home/ngrav/project/wearables/results/train_v44.csv',
+            out_file='/home/ngrav/project/wearables/results/train_v45.csv',
             model_path='/home/ngrav/scratch/wearables_model_zoo',
             device=torch.device('cuda:{}'.format(cuda_nb)))
     else:
         trainer = weartrain.train(
             net, exp=exp,
-            criterion=criterion, 
             trial=trial,
             batch_size=batch_size,
             nb_epochs=10000,
             lr=1e-5,
-            lambda_l2=0.001,
+            lambda_l1=(5e-4)*0.5,
+            lambda_l2=5e-4,
             aug_mode=aug_mode,
             aug_per_epoch=aug_per_epoch,
-            patience=500,
+            patience=400,
             min_nb_epochs=400,
-            out_file='/home/ngrav/project/wearables/results/train_v44.csv',
+            out_file='/home/ngrav/project/wearables/results/train_v45.csv',
             model_path='/home/ngrav/scratch/wearables_model_zoo',
             device=torch.device('cuda:{}'.format(cuda_nb)))
     trainer.fit()
@@ -106,7 +103,7 @@ if __name__ == '__main__':
     # eval
     evaluation = weareval.eval_trained(
         trainer, 
-        out_file='/home/ngrav/project/wearables/results/eval_test_v44.csv')
+        out_file='/home/ngrav/project/wearables/results/eval_test_v45.csv')
     print('{} results:'.format(exp))
     print('--------')
     print(evaluation.eval_performance)
