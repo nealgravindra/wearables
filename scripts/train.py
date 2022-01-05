@@ -18,7 +18,7 @@ import datetime
 import pandas as pd
 import glob
 
-# objectives
+# loss fx
 class MSEL1(nn.Module):
     def __init__(self, lambda_l1=0.001):
         super().__init__()
@@ -31,6 +31,7 @@ class MSEL1(nn.Module):
     def forward(self, output, target, params):
         return self.MSE(output, target) + self.lambda_l1*self.L1(params)
 
+# trainer
 class train():
     '''
     Arguments:
@@ -42,7 +43,7 @@ class train():
                  exp=None, 
                  target='GA', 
                  trial=0, 
-                 load_splits=None, 
+                 load_splits=None, # TODO: this is not triggering anything
                  model_path=None, 
                  out_file=None, 
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
@@ -59,21 +60,25 @@ class train():
         if 'lr' not in hyperparams.keys():
             hyperparams['lr'] = 0.001
         if 'lambda_l1' not in hyperparams.keys():
-            hyperparams['lambda_l1'] = 5e-4
+            hyperparams['lambda_l1'] = 1e-6
         if 'lambda_l2' not in hyperparams.keys():
             hyperparams['lambda_l2'] = 5e-4
+        if 'criterion' not in hyperparams.keys():
+            hyperparams['criterion'] = MSEL1(lambda_l1=hyperparams['lambda_l1'])
         if 'nb_epochs' not in hyperparams.keys():
             hyperparams['nb_epochs'] = 10000
         if 'patience' not in hyperparams.keys():
-            hyperparams['patience'] = 2500
+            hyperparams['patience'] = 400
         if 'min_nb_epochs' not in hyperparams.keys():
-            hyperparams['min_nb_epochs'] = 2000
+            hyperparams['min_nb_epochs'] = 400
         if 'shuffle_label' not in hyperparams.keys():
             hyperparams['shuffle_label'] = False
         if 'aug_mode' not in hyperparams.keys():
             hyperparams['aug_mode'] = ['random'] 
         if 'aug_per_epoch' not in hyperparams.keys():
             hyperparams['aug_per_epoch'] = False
+        if 'scheduler' not in hyperparams.keys():
+            hyperparams['scheduler'] = False
         self.hyperparams = hyperparams
         
         print('  note: running with following specifications: ', hyperparams)
@@ -92,6 +97,10 @@ class train():
         self.shuffle_label = self.hyperparams['shuffle_label']
         self.aug_mode = self.hyperparams['aug_mode']
         self.aug_per_epoch = self.hyperparams['aug_per_epoch']
+        self.scheduler = self.hyperparams['scheduler']
+        self.criterion = self.hyperparams['criterion']
+        self.lr = self.hyperparams['lr']
+        self.lambda_l2 = self.hyperparams['lambda_l2']
         self.device = device
         if device.type == 'cuda':
             torch.cuda.empty_cache()
@@ -99,12 +108,13 @@ class train():
         # data
         self.get_dataloaders()
         self.model = model.to(self.device)
-        self.criterion = MSEL1(lambda_l1=hyperparams['lambda_l1'])
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
-            lr=self.hyperparams['lr'],
-            weight_decay=self.hyperparams['lambda_l2'])
-
+            lr=self.lr,
+            weight_decay=self.lambda_l2)
+        if self.scheduler:
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer)
+            
     def get_dataloaders(self):
         '''Get train/val/test data.
         '''
@@ -125,7 +135,6 @@ class train():
                 os.remove(file)
 
     def fit(self, verbose=True):
-        
         # trackers
         total_loss = []
         total_loss_val = []
@@ -190,6 +199,10 @@ class train():
             # track
             total_loss.append(np.mean(epoch_loss))
             total_loss_val.append(np.mean(epoch_loss_val))
+            
+            # pass to scheduler
+            if self.scheduler:
+                self.scheduler.step(np.mean(epoch_loss_val))
 
             if verbose:
                 print('Epoch {}\t<loss>={:.4f}\t<loss_val>={:.4f}\tin {:.0f}-s\telapsed: {:.1f}-min'.format(

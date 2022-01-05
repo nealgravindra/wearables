@@ -79,13 +79,13 @@ def data_from_trainer(trainer_fp, split='train'):
                 dt = dt.append(pd.DataFrame(trainer.data.data['data'][unique_id]['md'], index=[unique_id]))
 
         if i==0:
-            X = X_mb[:, 0, :] # activity only
+            X = X_mb #X = X_mb[:, 0, :] # activity only
             Y = y_mb
             idx = idx_mb
             md = dt
 
         else:
-            X = torch.cat((X, X_mb[:, 0, :]), dim=0)
+            X = torch.cat((X, X_mb), dim=0) #X = torch.cat((X, X_mb[:, 0, :]), dim=0)
             Y = torch.cat((Y, y_mb), dim=0)
             idx = idx + idx_mb
             md = md.append(dt)
