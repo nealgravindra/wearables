@@ -439,11 +439,12 @@ class actigraphy(torch.utils.data.Dataset):
     
     
 class torch_dataloaders():
-    def __init__(self, target_name, batch_size=32, filename='/home/ngrav/data/wearables/processed/MOD1000_modeldata.pkl'):
+    def __init__(self, target_name, prop_trainset=1., batch_size=32, filename='/home/ngrav/data/wearables/processed/MOD1000_modeldata.pkl'):
         self.data = self.load_preproced(filename)
         self.target_name = target_name
         self.batch_size = batch_size
         self.tasktype = 'regression' if target_name=='GA' else rawdata.voi[target_name][1]
+        self.prop_trainset = prop_trainset
         
         # split data and get dataloaders
         self.split_data()
@@ -457,7 +458,7 @@ class torch_dataloaders():
     
     def split_data(self, train_ratio=0.7):
         pids = np.unique([i.split('_')[0] for i in self.data['IDs'].keys()])
-        train_pids = np.random.choice(pids, int(len(pids)*train_ratio), replace=False)
+        train_pids = np.random.choice(pids, int(len(pids)*train_ratio*self.prop_trainset), replace=False)
         test_pids = [i for i in pids if i not in train_pids]
         val_pids = np.random.choice(test_pids, int(len(test_pids)*0.5), replace=False)
         
@@ -466,7 +467,7 @@ class torch_dataloaders():
         self.val_ids = [i for i in self.data['IDs'].keys() if i.split('_')[0] in val_pids]
         self.test_ids = [i for i in self.data['IDs'].keys() if i.split('_')[0] in test_pids]
 
-    def get_dataloaders(self):
+    def get_dataloaders(self, prop_trainset=1.0):
         self.train_dl = torch.utils.data.DataLoader(
             actigraphy(self.train_ids, self.data, self.target_name),
             batch_size=self.batch_size,
@@ -482,6 +483,5 @@ class torch_dataloaders():
             batch_size=self.batch_size,
             num_workers=12,
             shuffle=True, pin_memory=True)
-        
 
 

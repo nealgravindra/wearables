@@ -79,6 +79,8 @@ class train():
             hyperparams['aug_per_epoch'] = False
         if 'scheduler' not in hyperparams.keys():
             hyperparams['scheduler'] = False
+        if 'prop_trainset' not in hyperparams.keys():
+            hyperparams['prop_trainset'] = 1.
         self.hyperparams = hyperparams
         
         print('  note: running with following specifications: ', hyperparams)
@@ -106,7 +108,7 @@ class train():
             torch.cuda.empty_cache()
         
         # data
-        self.get_dataloaders()
+        self.get_dataloaders(self.hyperparams['prop_trainset'])
         self.model = model.to(self.device)
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
@@ -115,12 +117,13 @@ class train():
         if self.scheduler:
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer)
             
-    def get_dataloaders(self):
+    def get_dataloaders(self, prop_trainset):
         '''Get train/val/test data.
         '''
         if self.load_splits is None:
             self.data = weardata.torch_dataloaders(
                 self.target, 
+                prop_trainset=prop_trainset,
                 batch_size=self.batch_size)
         else:
             with open(self.load_splits, 'rb') as f:
