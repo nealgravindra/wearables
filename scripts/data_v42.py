@@ -467,7 +467,7 @@ class torch_dataloaders():
         self.val_ids = [i for i in self.data['IDs'].keys() if i.split('_')[0] in val_pids]
         self.test_ids = [i for i in self.data['IDs'].keys() if i.split('_')[0] in test_pids]
 
-    def get_dataloaders(self, prop_trainset=1.0):
+    def get_dataloaders(self):
         self.train_dl = torch.utils.data.DataLoader(
             actigraphy(self.train_ids, self.data, self.target_name),
             batch_size=self.batch_size,
