@@ -13,7 +13,7 @@ then
   for i in {0.05,0.1,0.2}
   do
     echo "starting "$var"_n"$i" on cuda:"$var""
-    python /home/ngrav/project/wearables/scripts/exps_v51.py --exp="biasvarp""$i" --trial=1 --cuda_nb=var > ./jobs/"$var"_n"$i".log
+    python /home/ngrav/project/wearables/scripts/exps_v52.py --exp="biasvarp""$i" --trial=1 --cuda_nb=var > ./jobs/"biasvar"_p"$i".log
     echo "done with p=""$i"
     let counter++
   done
@@ -24,7 +24,7 @@ then
   for i in {0.3,0.4,0.6}
   do
     echo "starting "$var"_n"$i" on cuda:"$var""
-    python /home/ngrav/project/wearables/scripts/exps_v51.py --exp="biasvarp""$i" --trial=1 --cuda_nb=$var > ./jobs/"$var"_n"$i".log
+    python /home/ngrav/project/wearables/scripts/exps_v52.py --exp="biasvarp""$i" --trial=1 --cuda_nb=$var > ./jobs/"biasvar"_p"$i".log
     echo "done with p=""$i"
     let counter++
   done
@@ -35,7 +35,7 @@ then
   for i in {0.7,0.8,0.9}
   do
     echo "starting "$var"_n"$i" on cuda:"$var""
-    python /home/ngrav/project/wearables/scripts/exps_v51.py --exp="biasvarp""$i" --trial=1 --cuda_nb=$var > ./jobs/"$var"_n"$i".log
+    python /home/ngrav/project/wearables/scripts/exps_v52.py --exp="biasvarp""$i" --trial=1 --cuda_nb=$var > ./jobs/"biasvar"_p"$i".log
     echo "done with p=""$i"
     let counter++
   done
