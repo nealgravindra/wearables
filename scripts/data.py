@@ -495,6 +495,7 @@ class dataloader():
         self.kfold = kfold
         self.prop_trainset = prop_trainset
         self.include_lux = include_lux
+        self.ids = list(self.data['IDs'].keys())
         
         # split data and get dataloaders
         self.split_data()
@@ -571,6 +572,171 @@ class dataloader():
             Xy_train = self.Xy_from_id(self.train_ids, target_name)
             Xy_val = self.Xy_from_id(self.val_ids, target_name)
             return Xy_train, Xy_val, Xy_test
+        
+    def get_md_from_id(self, ids, ids_in_folds=False):
+        if ids_in_folds:
+            new_ids = {}
+            for kfold in ids.keys():
+                for i, kk in enumerate([k for k in ids.keys() if k!=kfold]):
+                    if i==0:
+                        cv_ids = ids[kfold]
+                    else:
+                        cv_ids = cv_ids + ids[kfold]
+                new_ids[kfold] = cv_ids
+            del ids # delete pointers
+            ids = new_ids # re-assign
+        df = pd.DataFrame()
+        for k in ids: 
+            dt = pd.DataFrame(self.data['data'][k]['md'], index=[k])
+            dt['GA'] = float(k.split('_')[-1])
+            dt['unique_id'] = k
+            df = df.append(dt)
+        return df
+    
+    def add_activity_metrics(self, md):
+        raise NotImplementedError
+
+    
+def describe_from_md(md, voi, group, bonferonni_crct=True, out_file=None):
+    '''Perform non-parametric tests (Mann-Whitney U) or Kruskal-Wallis between groups
+         per specified variable. This will construct a summary cohort in one column, then 
+         additional columns per group with a final column indicating P value between groups.
+    
+    Arguments:
+      md (pd.DataFrame): metadata
+      voi (dict): keys indicate column name of interest in metadata and value indicates
+        'continuous' or 'categorical' as a flag to trigger the appropriate statistical
+        test. 
+      group (str): specify a column in md that is categorical, splitting the data into groups.
+    '''
+    def p_encoder(p):
+        if p > 0.05:
+            label = '' # n.s.
+        elif p <= 0.001:
+            label = '***'
+        elif p <= 0.05 and p > 0.01:
+            label = '*'
+        elif p <= 0.01 and p > 0.001:
+            label = '**'
+        else: 
+            label = 'Unclassified'
+        return label
+    from scipy.stats import chi2_contingency
+    from scipy.stats import kruskal
+    from scipy.stats import normaltest
+    groupnames = ['{}_{}'.format(group, i) for i in np.sort(md[group].unique())]
+    summary = pd.DataFrame(columns=['Variable', 'All'] + groupnames + ['Padj', 'Effect'])
+    for i, (k, v) in enumerate(voi.items()):
+        dt = pd.DataFrame(columns=['Variable', 'All'] + groupnames + ['Padj', 'Effect'])
+        if v == 'continuous':
+            # summary stats
+            dt.loc[k, 'Variable'] = k
+            statistic, p = normaltest(md[k]) # on all group
+            if p < 0.01:
+                central_summary = '{:.2f}'.format(md[k].median())
+                spread = '({:.2f} - {:.2f})'.format(md[k].quantile(0.25), md[k].quantile(0.75))
+                for i in np.sort(md[group].unique()):
+                    grp_central = '{:.2f}'.format(md.loc[md[group]==i, k].median())
+                    grp_spread = '({:.2f} - {:.2f})'.format(md.loc[md[group]==i, k].quantile(0.25), md.loc[md[group]==i, k].quantile(0.75))
+                    dt.loc[k, '{}_{}'.format(group, i)] = '{} {}'.format(grp_central, grp_spread)
+            else:
+                central_summary = '{:.2f}'.format(md[k].mean())
+                spread = '({:.2f})'.format(md[k].std())
+                for i in np.sort(md[group].unique()):
+                    grp_central = '{:.2f}'.format(md.loc[md[group]==i, k].mean())
+                    grp_spread = '({:.2f})'.format(md.loc[md[group]==i, k].std())
+                    dt.loc[k, '{}_{}'.format(group, i)] = '{} {}'.format(grp_central, grp_spread)
+            dt.loc[k, 'All'] = '{} {}'.format(central_summary, spread) 
+            # stat hyp test 
+            vectors_per_group = []
+            for i in np.sort(md[group].unique()):
+                vectors_per_group.append(md.loc[md[group]==i, k].to_numpy())
+            statistic, p = kruskal(*vectors_per_group)
+            p = p*len(voi.keys()) if bonferonni_crct else p
+            dt.loc[k, 'Padj'] = '{:.2e}{}'.format(p, p_encoder(p))
+            dt.loc[k, 'Effect'] = '{:.2f}'.format(statistic)
+            summary = summary.append(dt)
+        elif v == 'categorical':
+            # summary
+            categories = np.sort(md[k].unique())
+            for ii, kk in enumerate(categories):
+                dt.loc['{}={}'.format(k,kk), 'Variable'] = '{}={}'.format(k,kk)
+                n = md.loc[md[k]==kk, :].shape[0]
+                N = md.shape[0]
+                dt.loc['{}={}'.format(k,kk), 'All'] = '{} ({:.2f})'.format(n, 100*n/N)
+                for i in np.sort(md[group].unique()):
+                    n = md.loc[(md[k]==kk) & (md[group]==i), :].shape[0]
+                    N = md.loc[md[group]==i].shape[0]
+                    dt.loc['{}={}'.format(k,kk), '{}_{}'.format(group, i)] = '{} ({:.2f})'.format(n, 100*n/N)
+            # stat test       
+            obs = md.groupby([k, group]).size().unstack(fill_value=0)
+            chi2, p, dof, expected = chi2_contingency(obs) # Fischer's?
+            metric = 100*((obs / expected) - 1) # obs/expected ratio
+            metric = metric.to_dict()
+            for ii, kk in enumerate(categories):
+                effect_size = ''
+                for i in np.sort(md[group].unique()):
+                    effect_size += '{:.2f} ({}) '.format(metric[i][kk], i)
+                dt.loc['{}={}'.format(k,kk), 'Effect'] = effect_size
+                p = p*len(voi.keys()) if bonferonni_crct else p
+                dt.loc['{}={}'.format(k,kk), 'Padj'] = '{:.2e}{}'.format(p, p_encoder(p))
+            summary = summary.append(dt)
+
+
+    if out_file is not None:
+        summary.to_csv(out_file)
+
+    return summary
+    
+    
+def add_activitymetrics(data, md):
+    '''From metadata (index is unique id), add in standard activity metrics.
+    
+    Arguments:
+      data (dict): input data.data['data'] for example
+      
+    REF: 
+      to use non-paremetric metrics, have to try to use filtered data
+        following, https://github.com/ghammad/pyActigraphy/issues/48
+    '''
+    # slow
+    for k in md.index:
+        data[k]['activity'].index.freq = 'min' # have to set this for some 
+        raw = pyActigraphy.io.BaseRaw(
+            name=k, 
+            uuid=k,
+            format='Pandas',
+            axial_mode='mono-axial',
+            start_time=data[k]['activity'].index[0],
+            period=(data[k]['activity'].index[-2] - data[k]['activity'].index[0]),
+            frequency=data[k]['activity'].index.freq,
+            data=data[k]['activity'][:-1],
+            light=data[k]['light'][:-1])
+        md.loc[k, 'IS'] = raw.IS(binarize=False)
+        md.loc[k, 'IV'] = raw.IV(binarize=False)
+        md.loc[k, 'RA'] = raw.RA(binarize=False)
+        md.loc[k, 'ISm'] = raw.ISm(binarize=False)
+        md.loc[k, 'IVm'] = raw.IVm(binarize=False)
+        
+        md.loc[k, 'min_rest'] = data[k]['sleep'][:-1].sum()
+        md.loc[k, 'ave_logpseudocount_wake'] = data[k]['activity'][:-1].loc[data[k]['sleep'][:-1]==0].mean()
+        md.loc[k, 'ave_logpseudocount_sleep'] = data[k]['activity'][:-1].loc[data[k]['sleep'][:-1]==1].mean()
+        md.loc[k, 'ave_logpseudocount_wknd'] = data[k]['activity'][:-1].loc[data[k]['activity'][:-1].index.weekday.isin([5,6])].mean()
+        md.loc[k, 'ave_logpseudocount_wkday'] = data[k]['activity'][:-1].loc[~data[k]['activity'][:-1].index.weekday.isin([5,6])].mean()
+        md.loc[k, 'ave_logpseudocount_day'] = data[k]['activity'][:-1].loc[~data[k]['activity'][:-1].index.hour.isin([19,20,21,22,23,0,1,2,3,4,5,6])].mean()
+        md.loc[k, 'ave_logpseudocount_night'] = data[k]['activity'][:-1].loc[data[k]['activity'][:-1].index.hour.isin([19,20,21,22,23,0,1,2,3,4,5,6])].mean()
+        
+    # replace NaN with averages in column
+    dt = md.isna().sum().reset_index()
+    for i in dt.index:
+        if dt.loc[i, 0] != 0:
+            print('NaN in var: {}\tn={}'.format(dt.loc[i, 'index'], dt.iloc[i, 0]))
+    md = md.fillna(md.mean()) # fill with mean of column
+    return md
+        
+        
+    
+    
 
 
 
