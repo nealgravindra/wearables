@@ -19,7 +19,8 @@ from scipy.stats import spearmanr
 #   for reg: (MAE, MAPE [mean absolute percentage error], Spearman's rho, P_spearman) 
 #   for clf: (adjusted AU-PRC, balanced acc adj)
 def auprc(output, target, nan20=False):
-    '''un-balanced macro-average'''
+    '''un-balanced macro-average
+    '''
     precision = dict()
     recall = dict()
     metric = dict()
@@ -31,38 +32,46 @@ def auprc(output, target, nan20=False):
     return np.nanmean([v for v in metric.values()])
 
 def eval_output(output, target, tasktype='regression', n_trials=10, nan20=False):
-        if tasktype == 'regression':
-            # Spearman's Rho
-            if not isinstance(output, np.ndarray):
-                rho, p = spearmanr(output.numpy(), target.numpy())
-                mae = (output - target).abs().mean().item()
-                mape = ((output - target)/target).abs().mean().item()
-            else: 
-                rho, p = spearmanr(output, target)
-                mae = np.mean(np.abs((output - target)))
-                mape = np.mean(np.abs((output - target)/target))
-            return {'mae': mae, 'mape': mape, 'rho': rho, 'P_rho': p}
-        else:
-            # AU-PRC vs. random (AU-PRC adjusted)
-            if len(output.shape) == 1:
-                target = target.unsqueeze(1)
-            auprc_model = auprc(output, target, nan20=nan20)
-            random_clf = torch.distributions.normal.Normal(0, 1)
-            auprc_random = 0.
-            for n in range(n_trials):
-                random_output = random_clf.sample((output.shape[0], output.shape[1]))
-                if self.out_dim > 1:
-                    random_output = torch.softmax(random_output, dim=-1)
-                else:
-                    random_output = torch.sigmoid(random_output)
-                auprc_random += auprc(random_output, target, nan20=nan20)
-            auprc_random = auprc_random / n_trials
-            auprc_adj = (auprc_model - auprc_random) / (1 - auprc_random)
-            
-            # balanced acc 
-            balanced_acc = smklmetrics.balanced_accuracy_score(target, output, adjusted=False)
-            balanced_acc_adj = smklmetrics.balanced_accuracy_score(target, output, adjusted=True)
-            return {'auprc_model': auprc_model, 'auprc_adj': auprc_adj, 'balanced_acc': balanced_acc, 'balanced_acc_adj': balanced_acc_adj}
+    '''Evaluate the model output (logits) versus ground-truth.
+    
+    Arguments:
+      output (torch.tensor OR np.ndarray): y_hat
+      target (torch.tensor OR np.ndarray): y_true
+    '''
+    
+    
+    if tasktype == 'regression':
+        # Spearman's Rho
+        if not isinstance(output, np.ndarray):
+            rho, p = spearmanr(output.numpy(), target.numpy())
+            mae = (output - target).abs().mean().item()
+            mape = ((output - target)/target).abs().mean().item()
+        else: 
+            rho, p = spearmanr(output, target)
+            mae = np.mean(np.abs((output - target)))
+            mape = np.mean(np.abs((output - target)/target))
+        return {'mae': mae, 'mape': mape, 'rho': rho, 'P_rho': p}
+    else:
+        # AU-PRC vs. random (AU-PRC adjusted)
+        if len(output.shape) == 1:
+            target = target.unsqueeze(1)
+        auprc_model = auprc(output, target, nan20=nan20)
+        random_clf = torch.distributions.normal.Normal(0, 1)
+        auprc_random = 0.
+        for n in range(n_trials):
+            random_output = random_clf.sample((output.shape[0], output.shape[1]))
+            if self.out_dim > 1:
+                random_output = torch.softmax(random_output, dim=-1)
+            else:
+                random_output = torch.sigmoid(random_output)
+            auprc_random += auprc(random_output, target, nan20=nan20)
+        auprc_random = auprc_random / n_trials
+        auprc_adj = (auprc_model - auprc_random) / (1 - auprc_random)
+
+        # balanced acc 
+        balanced_acc = smklmetrics.balanced_accuracy_score(target, output, adjusted=False)
+        balanced_acc_adj = smklmetrics.balanced_accuracy_score(target, output, adjusted=True)
+        return {'auprc_model': auprc_model, 'auprc_adj': auprc_adj, 'balanced_acc': balanced_acc, 'balanced_acc_adj': balanced_acc_adj}
 
 
 # eval DL models
@@ -155,6 +164,47 @@ class eval_trained():
             dt.to_csv(file, mode='a', header=True)
         else:
             dt.to_csv(file)
+            
+def p_encoder(p):
+    if p > 0.05:
+        label = '' # n.s.
+    elif p <= 0.001:
+        label = '***'
+    elif p <= 0.05 and p > 0.01:
+        label = '*'
+    elif p <= 0.01 and p > 0.001:
+        label = '**'
+    else: 
+        label = 'Unclassified'
+    return label
+
+def summarize_long_table(results_longtab, metrics=['MAE', 'Rho'], group='Model', out_file=None):
+    '''
+    Arguments:
+      results_longtab (pd.DataFrame): assumes that replicates are indicated in a trial col
+        but otherwise repeated according to the group colname
+    '''
+    from scipy.stats import ttest_ind
+    summary = pd.DataFrame()
+    
+    for g in results_longtab[group].unique():
+        summary.loc[g, group] = g
+        for m in metrics:
+            temp = {}
+            others = [gg for gg in results_longtab[group].unique() if gg!=g]
+            a = results_longtab.loc[results_longtab[group]==g, m].to_numpy()
+            summary.loc[g, m] = '{:.2f} ({:.2f})'.format(np.mean(a), np.std(a))
+            for gg in others:
+                b = results_longtab.loc[results_longtab[group]==gg, m].to_numpy()
+                statistic, p = ttest_ind(a, b)
+                temp['v.{}'.format(gg)] = (np.max(a) - np.max(b), p)
+            # only retain min
+            k2keep = min(temp, key=temp.get)
+            summary.loc[g, 'Top-1 diff ({})'.format(m)] = '{:.2f} ({})'.format(temp[k2keep][0], k2keep)
+            summary.loc[g, 'P ({})'.format(m)] = '{:.2e}{} ({})'.format(temp[k2keep][1], p_encoder(temp[k2keep][1]), k2keep)
+    if out_file is not None:
+        summary.to_csv(out_file)
+    return summary
             
 
 # if __name__ == '__main__':
