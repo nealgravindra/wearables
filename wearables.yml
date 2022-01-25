@@ -162,8 +162,6 @@ dependencies:
   - ninja=1.10.2=h4bd325d_0
   - notebook=6.4.3=pyha770c72_0
   - numba=0.53.1=py38h8b71fd7_1
-  - numpy=1.20.3=py38hf144106_0
-  - numpy-base=1.20.3=py38h74d4b33_0
   - oauthlib=3.1.1=pyhd8ed1ab_0
   - olefile=0.46=pyh9f0ad1d_1
   - openh264=2.1.1=h780b84a_0
@@ -232,7 +230,6 @@ dependencies:
   - sniffio=1.2.0=py38h578d9bd_1
   - sqlalchemy=1.4.29=py38h497a2fe_0
   - sqlite=3.36.0=h9cd32fc_0
-  - statsmodels=0.12.2=py38h5c078b8_0
   - stevedore=3.5.0=py38h578d9bd_2
   - tbb=2020.2=h4bd325d_4
   - tensorboard=2.7.0=pyhd8ed1ab_0
@@ -272,15 +269,18 @@ dependencies:
   - pip:
     - adjusttext==0.7.3
     - asteval==0.9.25
+    - deprecated==1.2.13
     - dill==0.3.4
     - fastdtw==0.3.4
     - igraph==0.9.8
     - leiden==1.0.1
     - leidenalg==0.8.8
+    - lightgbm==3.3.2
     - lmfit==1.0.3
     - lml==0.1.0
     - lxml==4.6.3
     - networkx==2.6.2
+    - numpy==1.19.3
     - nvidia-htop==1.0.5
     - path-explain==0.0.7
     - progressbar2==3.53.1
@@ -292,9 +292,12 @@ dependencies:
     - pygam==0.8.0
     - python-igraph==0.9.8
     - python-utils==2.5.6
+    - sktime==0.9.0
     - spm1d==0.4.2
+    - statsmodels==0.12.1
     - stochastic==0.6.0
     - termcolor==1.1.0
     - texttable==1.6.4
     - uncertainties==3.1.6
+    - wrapt==1.13.3
 prefix: /home/ngrav/miniconda3/envs/wearables

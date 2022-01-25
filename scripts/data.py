@@ -8,6 +8,7 @@ import time
 import re
 import datetime
 import pyActigraphy
+import datetime
 
 import sys
 sfp = '/home/ngrav/project' 
@@ -513,6 +514,8 @@ class dataloader():
         test_pids = [i for i in pids if i not in train_pids]
         if self.kfold <= 1: # create single val set
             val_pids = np.random.choice(test_pids, int(len(test_pids)*0.5), replace=False)
+            # no overlap between val/test? or merge val into test?
+            # test_pids = [i for i in test_pids if i not in val_pids]
             self.val_ids = [i for i in self.data['IDs'].keys() if i.split('_')[0] in val_pids]
         else:
             self.train_ids = np.array_split(train_pids, self.kfold)
@@ -594,7 +597,7 @@ class dataloader():
         return df
     
     def add_activity_metrics(self, md):
-        raise NotImplementedError
+        raise NotImplementedError # separate fx below
 
     
 def describe_from_md(md, voi, group, bonferonni_crct=True, out_file=None):
@@ -733,6 +736,225 @@ def add_activitymetrics(data, md):
             print('NaN in var: {}\tn={}'.format(dt.loc[i, 'index'], dt.iloc[i, 0]))
     md = md.fillna(md.mean()) # fill with mean of column
     return md
+
+def calc_agg_metrics(metadata, 
+                     raw_md_fp='/home/ngrav/project/wearables/data/raw/MOD_Data_2021.csv',
+                     verbose=False,):
+    '''Compute edinburgh depression scale, sleep quality, and activity agg score
+    
+    Details:
+      Metrics added include:
+        - Pittsburgh Sleep Quality Index: sum it [REF](https://pubmed.ncbi.nlm.nih.gov/2748771/)
+        - Kaiser Physical Activity: average in category, then sum 4 categories (can use weighted version for preg) [REF](doi: 10.1249/01.mss.0000181301.07516.d6)
+        - Epworth Sleepiness scale: simple sum of 8 ques [Ref](https://epworthsleepinessscale.com/about-the-ess/)
+        - Edinburgh depression [REF: Cox et al. Detection of postnatal depression: Development of the 10-item Edinburgh Postnatal Depression Scale. British Journal of Psychiatry 1987]
+      Not calculated, but possibly could be: 
+        - WHIRS/MCTQ/IRLS
+        - Berlin Questionaire (Sleep Apnea High Risk): see Fig 1 in doi: 10.1097/WNO.0b013e31821a4d54
+        
+    Arguments:
+      metadata (pd.DataFrame): md dataframe
+      
+    NOTE:
+      - optimally, would assign visit num (1 through 3) for up to 6 measurements via closest
+        date rather than first measurement through by carrying last one forward. 
+    '''
+    # load raw_md to grab that data
+    raw_md_fp = '/home/ngrav/data/wearables/raw/MOD_Data_2021.csv'
+    raw_md = pd.read_csv(raw_md_fp, low_memory=False)
+    
+    # calc scores
+    w = [0.5, 0.2, 0.25, 0.05]  # preg adj: [0.5, 0.2, 0.25, 0.05] 
+    ## PQSI
+    for i in range(1, 3+1):
+        # sleep quality
+        comp1 = (raw_md['sleep_qual%s' % str(i)] - 1).fillna(value=0.)
+        minsleep = wearutils.tdiff_from24htime(raw_md['bedtime_%strim' % str(i)], raw_md['sleepact_%strim' % str(i)])
+        scr = pd.Series(index=minsleep.index, dtype='float64')
+        scr.loc[(minsleep <= 15)] = 0
+        scr.loc[(minsleep < 30) & (minsleep >= 16)] = 1
+        scr.loc[(minsleep >= 30) & (minsleep < 60)] = 2
+        scr.loc[(minsleep >= 60)] = 3
+        # sleep latency
+        comp2 = scr + (raw_md['slp30_%strim' % i] - 1).fillna(value=0.)
+        del minsleep, scr
+        # sleep duration
+        hsleep = wearutils.tdiff_from24htime(raw_md['sleepact_%strim' % str(i)], raw_md['wakeup4_%strim' % str(i)], minutes_not_h=False)
+        comp3 = pd.Series(index=hsleep.index, dtype='float64')
+        comp3.loc[(hsleep > 7)] = 0
+        comp3.loc[(hsleep <= 7) & (hsleep > 6)] = 1
+        comp3.loc[(hsleep <=6) & (hsleep > 5)] = 2
+        comp3.loc[(hsleep <= 5)] = 3
+        # sleep efficiency
+        hbed = wearutils.tdiff_from24htime(raw_md['bedtime_%strim' % str(i)], raw_md['wakeup4_%strim' % str(i)], minutes_not_h=False)
+        slp_eff = (hsleep / hbed)
+        slp_eff = slp_eff.fillna(value=1.)
+        comp4 = pd.Series(index=hsleep.index, dtype='float64')
+        comp4.loc[(slp_eff > 0.85)] = 1
+        comp4.loc[(slp_eff > 0.75) & (slp_eff <= 0.85)] = 2
+        comp4.loc[(slp_eff > 0.65) & (slp_eff <= 0.75)] = 3
+        comp4.loc[(slp_eff <= 0.65)] = 3
+        del slp_eff
+        # sleep disturbances 
+        scr = (
+            (raw_md['slpwake_%strim' % str(i)] - 1).fillna(value=0.) + (raw_md['slpbath_%strim' % str(i)] - 1).fillna(value=0.) + 
+            (raw_md['slpbreathe_%strim' % str(i)] - 1).fillna(value=0.) + (raw_md['slpcough_%strim' % str(i)] - 1).fillna(value=0.) + 
+            (raw_md['slpcold_%strim' % str(i)] - 1).fillna(value=0.) + (raw_md['slphot_%strim' % str(i)] - 1).fillna(value=0.) + 
+            (raw_md['slpdream_%strim' % str(i)] - 1).fillna(value=0.) + (raw_md['slppain_%strim' % str(i)] - 1).fillna(value=0.) + 
+            (raw_md['slptwitch_%strim' % str(i)] - 1).fillna(value=0.) + (raw_md['slpother_num%s' % str(i)] - 1).fillna(value=0.) 
+        )
+        comp5 = pd.Series(index=scr.index, dtype='float64')
+        comp5.loc[(scr == 0)] = 0
+        comp5.loc[(scr > 0) & (scr < 10)] = 1
+        comp5.loc[(scr >= 10) & (scr < 19)] = 2
+        comp5.loc[(scr >= 19)] = 3
+        del scr
+        # sleep medicaftion
+        comp6 = (raw_md['slpmed%s' % str(i)] - 1).fillna(value=0.)
+        # daytime dysfunction
+        scr = (raw_md['slpdrive%s' % str(i)] - 1).fillna(value=0.) + (raw_md['slpenergy%s' % str(i)] - 1).fillna(value=0.)
+        comp7 = pd.Series(index=scr.index, dtype='float64')
+        comp7.loc[(scr == 0)] = 0
+        comp7.loc[(scr > 0) & (scr <= 2)] = 1
+        comp7.loc[(scr > 2) & (scr <= 4)] = 2
+        comp7.loc[(scr > 4)] = 3   
+        del scr
+        raw_md['PQSI_%s' % str(i)] = comp1 + comp2 + comp3 + comp4 + comp5 + comp6 + comp7
+        
+        ## KPAS
+        N = 11
+        rescale1 = raw_md['under2care%s' % i].fillna(value=1.)
+        rescale1 = (5-1)*((rescale1 - rescale1.min())/(rescale1.max() - rescale1.min())) + 1
+        rescale2 = raw_md['caretoddler%s' % i].fillna(value=1.)
+        rescale2 = (5-1)*((rescale2 - rescale2.min())/(rescale2.max() - rescale2.min())) + 1
+        rescale3 = raw_md['caredisabled%s' % i].fillna(value=1.)
+        rescale3 = (5-1)*((rescale3 - rescale3.min())/(rescale3.max() - rescale3.min())) + 1
+        comp1 = (rescale1 + rescale2 + rescale3 + 
+                 raw_md['mealprepday%s' % i].fillna(value=1.) +
+                 raw_md['mealprepwkend%s' % i].fillna(value=1.) + raw_md['majorclean%s' % i].fillna(value=1.) + 
+                 raw_md['routineclean%s' % i].fillna(value=1.) + raw_md['grocery%s' % i].fillna(value=1.) +
+                 raw_md['yardwork%s' % i].fillna(value=1.) + raw_md['heavyoutdoor%s' % i].fillna(value=1.) +
+                 raw_md['homedecor%s' % i].fillna(value=1.)) / N
+        # occupational activities 
+        N = 7
+        comp2 = (raw_md['workload_weight%s' % i].fillna(value=1.) + (raw_md['after_work%s' % i].fillna(value=0.) + 1) +
+                 (5 - raw_md['job_sit%s' % i].fillna(value=0.) + 1) + (raw_md['job_stand%s' % i].fillna(value=0.) + 1) + 
+                 (raw_md['job_walk%s' % i].fillna(value=0.) + 1) + (raw_md['job_lift%s' % i].fillna(value=0.) + 1) +
+                 (raw_md['job_sweat%s' % i].fillna(value=0.) + 1)) / N
+        # active living
+        N = 4
+        comp3 = (raw_md['workwalk%s' % i].fillna(value=1.) + (5-raw_md['television_watch%s' % i].fillna(value=5.) + 1) +
+                 raw_md['walk15min%s' % i].fillna(value=1.) + raw_md['bike15min%s' % i].fillna(value=1.)) / N
+
+        # sports/exercise index
+        rescale1 = raw_md['intensity%s' % i].fillna(value=1.).replace(4, 1)
+        rescale1 = (5-1)*((rescale1 - rescale1.min())/(rescale1.max() - rescale1.min())) + 1
+        suba = raw_md['activities%s' % i].fillna(value=0)*((rescale1 + 
+                                                            raw_md['activity_month%s' % i].fillna(value=1.).replace(6, 1) + 
+                                                            raw_md['activity_hours%s' % i].fillna(value=1.).replace(6, 1))/3)
+        del rescale1
+        rescale1 = raw_md['intensityb%s' % i].fillna(value=1.).replace(4, 1)
+        rescale1 = (5-1)*((rescale1 - rescale1.min())/(rescale1.max() - rescale1.min())) + 1
+        subb = raw_md['activityb%s' % i].fillna(value=0)*((rescale1 + 
+                                                           raw_md['activityb_month%s' % i].fillna(value=1.).replace(6, 1) + 
+                                                           raw_md['activityb_hours%s' % i].fillna(value=1.).replace(6, 1))/3)
+        del rescale1
+        rescale1 = raw_md['intensityc%s' % i].fillna(value=1.).replace(4, 1)
+        rescale1 = (5-1)*((rescale1 - rescale1.min())/(rescale1.max() - rescale1.min())) + 1
+        subc = raw_md['activityc%s' % i].fillna(value=0)*((rescale1 + 
+                                                           raw_md['activityc_month%s' % i].fillna(value=1.).replace(6, 1) + 
+                                                           raw_md['activityc_hours%s' % i].fillna(value=1.).replace(6, 1))/3)
+        del rescale1
+        N = pd.Series(3, index=raw_md.index)
+        N.loc[suba > 0] += 1
+        N.loc[subb > 0] += 1
+        N.loc[subc > 0] += 1
+        comp4 = (raw_md['recreational_act%s' % i].fillna(value=1.) + raw_md['playsports%s' % i].fillna(value=1.) +
+                 raw_md['sports_sweat%s' % i].fillna(value=1.).replace(6, 1) + 
+                 suba + subb + subc) / N
+
+        raw_md['KPAS_%s' % str(i)] = 4*(w[0]*comp1 + w[1]*comp2 + w[2]*comp3 + w[3]*comp4)
+            
+        ## Epworth
+        raw_md['EpworthSS_%s' % i] = (
+            raw_md['sitting%s' % i].fillna(value=0).replace(4, 0) + 
+            raw_md['tv%s' % i].fillna(value=0).replace(4, 0) + 
+            raw_md['inactive%s' % i].fillna(value=0).replace(4, 0) + 
+            raw_md['passenger%s' % i].fillna(value=0).replace(4, 0) + 
+            raw_md['reset%s' % i].fillna(value=0).replace(4, 0) + 
+            raw_md['talking%s' % i].fillna(value=0).replace(4, 0) + 
+            raw_md['afterlunch%s' % i].fillna(value=0).replace(4, 0) + 
+            raw_md['cartraffic%s' % i].fillna(value=0).replace(4, 0)
+        )
+        
+        ## Edinburgh
+        raw_md['Edinburgh_%s' % i] = (
+            raw_md['edinb1_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb2_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb3_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb4_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb5_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb6_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb7_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb8_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb9_%strim' % i].fillna(value=1) - 1 + 
+            raw_md['edinb10_%strim' % i].fillna(value=1) - 1
+        )
+        
+    # integrate
+    metadata['visit_num'] = 1
+    for pid in metadata['record_id']:
+        if verbose:
+            n_measurements = []
+        unique_idxs = np.array([i for i in metadata['unique_id'] if i.split('_')[0] == str(pid)])
+        unique_idxs = list(unique_idxs[np.argsort([float(i.split('_')[-1]) for i in unique_idxs])])
+        if verbose:
+            n_measruements.append(len(unique_idxs)) # max ~ 6 but columns only go up to 3
+        for i, idx in enumerate(unique_idxs):
+            if i == 1:
+                metadata.loc[idx, 'visit_num'] = 2
+            elif i >= 2:
+                metadata.loc[idx, 'visit_num'] = 3
+                
+    
+    for i in range(1, 4):
+        if i==1:
+            mdprime = metadata.loc[metadata['visit_num']==i].merge(
+                raw_md.loc[:, ['PQSI_%s' % i,
+                               'KPAS_%s' % i,
+                               'EpworthSS_%s' % i,
+                               'Edinburgh_%s' % i,
+                               'record_id']], 
+                left_on='record_id', right_on='record_id', 
+                how='left')
+            mdprime = mdprime.rename(columns={'PQSI_%s' % i: 'PQSI',
+                                    'KPAS_%s' % i: 'KPAS',
+                                    'EpworthSS_%s' % i: 'EpworthSS',
+                                    'Edinburgh_%s' % i: 'Edinburgh',})
+        else:
+            dt = metadata.loc[metadata['visit_num']==i].merge(
+                raw_md.loc[:, ['PQSI_%s' % i,
+                               'KPAS_%s' % i,
+                               'EpworthSS_%s' % i,
+                               'Edinburgh_%s' % i,
+                               'record_id']], 
+                left_on='record_id', right_on='record_id', 
+                how='left')
+            dt = dt.rename(columns={'PQSI_%s' % i: 'PQSI',
+                                    'KPAS_%s' % i: 'KPAS',
+                                    'EpworthSS_%s' % i: 'EpworthSS',
+                                    'Edinburgh_%s' % i: 'Edinburgh',})
+            mdprime = mdprime.append(dt)
+    mdprime = mdprime.set_index('unique_id')
+    return mdprime
+
+    
+    
+    
+    
+    
+    
+    
         
         
     
