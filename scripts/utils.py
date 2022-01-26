@@ -114,3 +114,45 @@ def compare_v3tov1(raw_metadata, metadata_prime, plot=True, var=['PQSI', 'KPAS',
             if save_magic is not None:
                 fig.savefig(save_magic + '_%s.pdf' % v, bbox_inches='tight', dpi=600)
     return res
+
+def p_encoder(p):
+    if p > 0.05:
+        label = '' # n.s.
+    elif p <= 0.001:
+        label = '***'
+    elif p <= 0.05 and p > 0.01:
+        label = '*'
+    elif p <= 0.01 and p > 0.001:
+        label = '**'
+    else: 
+        label = 'Unclassified'
+    return label
+
+
+def perm_test_oneVrest(md, n_iter=1000, n_sample=500, verbose=True):
+    if verbose:
+        tic = time.time()
+    mean_sqdiff_rhos = {'obs': [], 'null': []}
+    for i in range(n_iter):
+        # obs
+        idx_pos = list(md.loc[(md['split']=='test') & (md['Pre-term birth']==True)].sample(n_sample, replace=True).index)
+        idx_neg = list(md.loc[~((md['split']=='test') & (md['Pre-term birth']==True))].sample(n_sample, replace=True).index)
+        rho_pos, _ = spearmanr(md.loc[idx_pos, 'y'],
+                               md.loc[idx_pos, 'yhat'])
+        rho_neg, _ = spearmanr(md.loc[idx_neg, 'y'],
+                               md.loc[idx_neg, 'yhat'])
+        mean_sqdiff_rhos['obs'].append((rho_pos - rho_neg)**2)
+
+        # null
+        idx_pos = list(md.sample(n_sample, replace=True).index)
+        idx_neg = list(md.sample(n_sample, replace=True).index)
+        rho_pos, _ = spearmanr(md.loc[idx_pos, 'y'],
+                               md.loc[idx_pos, 'yhat'])
+        rho_neg, _ = spearmanr(md.loc[idx_neg, 'y'],
+                               md.loc[idx_neg, 'yhat'])
+        mean_sqdiff_rhos['null'].append((rho_pos - rho_neg)**2)
+        
+        if verbose and i % 100 == 0:
+            print('through {} iter in {:.0f}-s'.format(i+1, time.time() - tic))
+    p_est = (mean_sqdiff_rhos['obs'] > mean_sqdiff_rhos['null']) / n_iter
+    return mean_sqdiff_rhos, p_est
