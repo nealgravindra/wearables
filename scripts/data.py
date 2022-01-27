@@ -425,8 +425,9 @@ class actigraphy(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.ids)
     
-    def __getitem__(self, idx):
-        k = self.ids[idx]
+    def __getitem__(self, idx, k=None):
+        if k is None:
+            k = self.ids[idx]
         x = torch.cat((torch.tensor(self.data['data'][k]['activity'], dtype=torch.float32)[:-1].reshape(1, -1), 
             torch.tensor(self.data['data'][k]['light'], dtype=torch.float32)[:-1].reshape(1, -1)), dim=0)
         if self.target_name == 'GA':

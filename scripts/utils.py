@@ -156,3 +156,24 @@ def perm_test_oneVrest(md, n_iter=1000, n_sample=500, verbose=True):
             print('through {} iter in {:.0f}-s'.format(i+1, time.time() - tic))
     p_est = (mean_sqdiff_rhos['obs'] > mean_sqdiff_rhos['null']) / n_iter
     return mean_sqdiff_rhos, p_est
+
+def biaxial_fx(y_vars, data, x_var='GA', palette=None, hue='Pre-term birth', out_file=None):
+    x = data[x_var]
+    fig = plt.figure(figsize=(3.5, 4))
+    for i, var in enumerate(y_vars):
+        y = data[var]
+        ax = fig.add_subplot(3, 2, i+1)
+        ax.scatter(x, y, 
+                   c=data[hue] if palette is None else data[hue].map(palette),
+                   s=3, linewidth=0, alpha=0.8, rasterized=True)
+        ax.set_ylabel(var)
+        
+        rho, p = spearmanr(x, y)
+#         ax.text(0.1, 0.8, 'r={:.2f}{}'.format(rho, p_encoder(p)), transform=ax.transAxes, weight='bold')
+        ax.set_title('r={:.2f}{}'.format(rho, p_encoder(p)))
+        if i==4 or i==5:
+            ax.set_xlabel('Actual GA')
+    fig.tight_layout()
+    if out_file is not None:
+        fig.savefig(out_file, bbox_inches='tight', dpi=600)
+        

@@ -25,7 +25,7 @@ def auprc(output, target, nan20=False):
     recall = dict()
     metric = dict()
     for i in range(output.shape[1]):
-        precision[i], recall[i] = sklmetrics.precision_recall_curve(target[:, i], output[:, i])
+        precision[i], recall[i], _ = sklmetrics.precision_recall_curve(target[:, i], output[:, i])
         metric[i] = sklmetrics.auc(recall[i], precision[i])
     if nan20:
         metric = {k:v if not np.isnan(v) else 0. for k,v in metric.items()}
@@ -54,13 +54,18 @@ def eval_output(output, target, tasktype='regression', n_trials=10, nan20=False)
     else:
         # AU-PRC vs. random (AU-PRC adjusted)
         if len(output.shape) == 1:
-            target = target.unsqueeze(1)
+            if torch.is_tensor(target):
+                target = target.unsqueeze(1)
+                output = output.unsqueeze(1)
+            else:
+                target = np.expand_dims(target, 1)
+                output = np.expand_dims(output, 1)
         auprc_model = auprc(output, target, nan20=nan20)
         random_clf = torch.distributions.normal.Normal(0, 1)
         auprc_random = 0.
         for n in range(n_trials):
             random_output = random_clf.sample((output.shape[0], output.shape[1]))
-            if self.out_dim > 1:
+            if len(output.shape) > 1:
                 random_output = torch.softmax(random_output, dim=-1)
             else:
                 random_output = torch.sigmoid(random_output)
@@ -69,8 +74,17 @@ def eval_output(output, target, tasktype='regression', n_trials=10, nan20=False)
         auprc_adj = (auprc_model - auprc_random) / (1 - auprc_random)
 
         # balanced acc 
-        balanced_acc = smklmetrics.balanced_accuracy_score(target, output, adjusted=False)
-        balanced_acc_adj = smklmetrics.balanced_accuracy_score(target, output, adjusted=True)
+        if len(output.shape) > 1:
+            balanced_acc = []
+            balanced_acc_adj = []
+            for i in range(output.shape[1]):
+                balanced_acc.append(sklmetrics.balanced_accuracy_score(target[:, i], output[:, i], adjusted=False))
+                balanced_acc_adj.append(sklmetrics.balanced_accuracy_score(target[:, i], output[:, i], adjusted=True))
+            balanced_acc = np.mean(balanced_acc)
+            balanced_acc_adj = np.mean(balanced_acc_adj)
+        else:
+            balanced_acc = sklmetrics.balanced_accuracy_score(target, output, adjusted=False)
+            balanced_acc_adj = sklmetrics.balanced_accuracy_score(target, output, adjusted=True)
         return {'auprc_model': auprc_model, 'auprc_adj': auprc_adj, 'balanced_acc': balanced_acc, 'balanced_acc_adj': balanced_acc_adj}
 
 
@@ -593,3 +607,28 @@ def featattr_peruid(X, md, uids, explainer, trainer):
 #     p.set_xticklabels(p.get_xticklabels(), rotation=45)
 #     fig.tight_layout()
 #     plt.show()
+
+# statistical tests
+def pd_chisq(df, feat, groupby='Error group'):
+    from scipy.stats import chi2_contingency
+    obs = md.groupby([groupby, feat]).size().unstack(fill_value=0)
+    chi2, p, dof, expected = chi2_contingency(obs)
+    return p, obs
+
+def pd_kruskalwallis(df, feat, groupby='Error group'):
+    size = []
+    for i, g in enumerate(df[groupby].unique()):
+        dt = df.loc[df[groupby]==g, feat].to_numpy()
+        size.append(dt.shape[0])
+        if i==0:
+            X = dt
+        else:
+            X = np.concatenate((X, dt))
+    X = np.split(X, np.cumsum(size[:-1]))
+    from scipy.stats import kruskal
+    statistic, p = kruskal(*X)
+    return p
+
+def pd_purity():
+    '''Silhouette coefficient per var per cluster'''
+    raise NotImplemented
