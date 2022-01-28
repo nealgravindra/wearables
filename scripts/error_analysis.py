@@ -48,7 +48,7 @@ class dataloader():
                  kfold=5, prop_trainset=1., 
                  include_lux=False, 
                  filename='/home/ngrav/data/wearables/processed/MOD1000_modeldata.pkl',
-                 pp_md_fp=os.path.join(pfp, 'md_v522_220124.csv')):
+                 pp_md_fp='/home/ngrav/project/wearables/results/md_v522_220124.csv'):
         self.rawdata_file = filename
         self.data = self.load_preproced(filename)
         self.target_name = target_name
@@ -337,7 +337,7 @@ if __name__ == '__main__':
     md = pd.read_csv(pp_md_fp, index_col=0)
     
     # threshold for error groups
-    threshold = 8 # wks
+    threshold = 10 # wks
     md['Error group'] = 'lt{}wks'.format(threshold)
     md.loc[(md['error'] >= threshold), 'Error group'] = 'Higher-than-actual'
     md.loc[(md['error'] <= -threshold), 'Error group'] = 'Lower-than-actual'
@@ -355,8 +355,45 @@ if __name__ == '__main__':
     # grab list of vars to predict (mdpred_voi)
     from wearables.scripts.md_specification import mdpred_voi
     
+    total_t = time.time()
+    
+    tic = time.time()
     res = stat_err_analysis(md, 
                             mdpred_voi, 
-                            out_file=os.path.join(pfp, 'md_predictability_tsrf.pkl'), model=TSRF)
+                            out_file=os.path.join(pfp, 'md_predictability_tsrf_10wk.pkl'), 
+                            model=TSRF)
+    print('Done w/10wk TSRF in {:.1f}-m\t({:.1f}-min elapsed)'.format( 
+        (time.time() - tic)/60, (time.time() - total_t)/60))
+    
+    tic = time.time()
+    res = stat_err_analysis(md, 
+                            mdpred_voi, 
+                            out_file=os.path.join(pfp, 'md_predictability_knn_10wk.pkl'), 
+                            model=kNN)
+    print('Done w/10wk kNN in {:.1f}-m\t({:.1f}-min elapsed)'.format( 
+        (time.time() - tic)/60, (time.time() - total_t)/60))
+    
+    # change threshold
+    # threshold for error groups
+    threshold = 8 # wks
+    md['Error group'] = 'lt{}wks'.format(threshold)
+    md.loc[(md['error'] >= threshold), 'Error group'] = 'Higher-than-actual'
+    md.loc[(md['error'] <= -threshold), 'Error group'] = 'Lower-than-actual'
+    
+    tic - time.time()
+    res = stat_err_analysis(md, 
+                            mdpred_voi, 
+                            out_file=os.path.join(pfp, 'md_predictability_tsrf_8wk.pkl'), 
+                            model=TSRF)
+    print('Done w/8wk TSRF in {:.1f}-m\t({:.1f}-min elapsed)'.format( 
+        (time.time() - tic)/60, (time.time() - total_t)/60))
+    
+    tic = time.time()
+    res = stat_err_analysis(md, 
+                            mdpred_voi, 
+                            out_file=os.path.join(pfp, 'md_predictability_knn_8wk.pkl'), 
+                            model=kNN)
+    print('Done w/8wk kNN in {:.1f}-m\t({:.1f}-min elapsed)'.format( 
+        (time.time() - tic)/60, (time.time() - total_t)/60))
         
     

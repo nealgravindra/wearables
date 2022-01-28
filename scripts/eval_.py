@@ -61,17 +61,18 @@ def eval_output(output, target, tasktype='regression', n_trials=10, nan20=False)
                 target = np.expand_dims(target, 1)
                 output = np.expand_dims(output, 1)
         auprc_model = auprc(output, target, nan20=nan20)
-        random_clf = torch.distributions.normal.Normal(0, 1)
+        random_clf = torch.distributions.Uniform(0, 1) # torch.distributions.normal.Normal(0, 1)
         auprc_random = 0.
         for n in range(n_trials):
             random_output = random_clf.sample((output.shape[0], output.shape[1]))
-            if len(output.shape) > 1:
+            if len(output.shape) > 1 and output.shape[1] > 1:
                 random_output = torch.softmax(random_output, dim=-1)
             else:
                 random_output = torch.sigmoid(random_output)
             auprc_random += auprc(random_output, target, nan20=nan20)
         auprc_random = auprc_random / n_trials
-        auprc_adj = (auprc_model - auprc_random) / (1 - auprc_random)
+        auprc_adj = (auprc_model, auprc_random)
+#         auprc_adj = (auprc_model - auprc_random) / (1 - auprc_random)
 
         # balanced acc 
         if len(output.shape) > 1:
