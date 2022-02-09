@@ -177,3 +177,281 @@ def biaxial_fx(y_vars, data, x_var='GA', palette=None, hue='Pre-term birth', out
     if out_file is not None:
         fig.savefig(out_file, bbox_inches='tight', dpi=600)
         
+def metric_list(stat_err_anal_res, mdpred_voi, 
+                clf_metric='auprc_adj', clf_metric2='auprc_pctdiff', 
+                reg_metric='rho', reg_metric2='mape',
+                top1=False):
+    out = {} # first is -log10 ( P ), second is metric specified
+    for i, k in enumerate(stat_err_anal_res.keys()):
+        if mdpred_voi[k] == 'continuous':
+            metric_key = reg_metric
+            metric2_key = reg_metric2
+        else: 
+            metric_key = clf_metric
+            metric2_key = clf_metric2
+        metric = []
+        metric2 = []
+        for kk in stat_err_anal_res[k]['predictability'].keys():
+            m = stat_err_anal_res[k]['predictability'][kk][metric_key]
+            if metric_key == 'auprc_adj':
+                metric.append(m[0])
+            else:
+                metric.append(m)
+            if metric2_key == 'auprc_pctdiff':
+                m2 = (m[0] - m[1]) / m[1] 
+                if np.isinf(m2):
+                    m2 = np.nan
+                    # clip?
+#                 elif m2 < -1.:
+#                     m2 = -1.
+#                 elif m2 > 1.:
+#                     m2 = +1.
+                metric2.append(m2)
+            elif metric2_key == 'mape':
+                m2 = stat_err_anal_res[k]['predictability'][kk][metric2_key]
+                m2 = 1 - m2 # want better. Clip it
+                if np.isinf(m2):
+                    m2 = np.nan
+#                 elif m2 < -1.:
+#                     m2 = -1.
+#                 elif m2 > 1.:
+#                     m2 = +1.
+                metric2.append(m2)
+            else:
+                m2 = stat_err_anal_res[k]['predictability'][kk][metric2_key]
+                metric2.append(m2)
+        if metric_key == 'rho':
+            metric = np.abs(metric)
+        if metric2_key == 'rho':
+            metric2 = np.abs(metric2)
+        if top1:
+            metric = np.max(metric)
+            metric2 = np.max(metric2)
+        else:
+            metric = np.nanmean(metric)
+            metric2 = np.nanmean(metric2)
+        out[k] = (-np.log10(stat_err_anal_res[k]['p']), metric, metric2)
+    return out
+
+
+def goodmanKruskalgamma(data, ordinal1, ordinal2):
+    from scipy.stats import norm
+    myCrosstable = pd.crosstab(data[ordinal1], data[ordinal2])
+    
+#     myCrosstable = myCrosstable.reindex(orderLabels1)
+            
+#     if orderLabels2 == None:
+#         myCrosstable = myCrosstable[orderLabels1]
+#     else:
+#         myCrosstable = myCrosstable[orderLabels2]
+
+    nRows = myCrosstable.shape[0]
+    nCols = myCrosstable.shape[1]
+    
+    
+    C = [[0 for x in range(nCols)] for y in range(nRows)] 
+
+    # top left part
+    for i in range(nRows):
+        for j in range(nCols):
+            h = i-1
+            k = j-1        
+            if h>=0 and k>=0:            
+                for p in range(h+1):
+                    for q in range(k+1):
+                        C[i][j] = C[i][j] + list(myCrosstable.iloc[p])[q]
+
+    # bottom right part                    
+    for i in range(nRows):
+        for j in range(nCols):
+            h = i+1
+            k = j+1        
+            if h<nRows and k<nCols:            
+                for p in range(h, nRows):
+                    for q in range(k, nCols):
+                        C[i][j] = C[i][j] + list(myCrosstable.iloc[p])[q]
+                        
+    D = [[0 for x in range(nCols)] for y in range(nRows)] 
+
+    # bottom left part
+    for i in range(nRows):
+        for j in range(nCols):
+            h = i+1
+            k = j-1        
+            if h<nRows and k>=0:            
+                for p in range(h, nRows):
+                    for q in range(k+1):
+                        D[i][j] = D[i][j] + list(myCrosstable.iloc[p])[q]
+
+    # top right part                    
+    for i in range(nRows):
+        for j in range(nCols):
+            h = i-1
+            k = j+1        
+            if h>=0 and k<nCols:            
+                for p in range(h+1):
+                    for q in range(k, nCols):
+                        D[i][j] = D[i][j] + list(myCrosstable.iloc[p])[q]
+
+    P = 0
+    Q = 0
+    for i in range(nRows):
+        for j in range(nCols):
+            P = P + C[i][j] * list(myCrosstable.iloc[i])[j]
+            Q = Q + D[i][j] * list(myCrosstable.iloc[i])[j]
+               
+    GKgamma = (P - Q) / (P + Q)
+    
+#     if abs(GKgamma) < .10:
+#         qual = 'Negligible'
+#     elif abs(GKgamma) < .20:
+#         qual = 'Weak'
+#     elif abs(GKgamma) < .40:
+#         qual = 'Moderate'
+#     elif abs(GKgamma) < .60:
+#         qual = 'Relatively strong'
+#     elif abs(GKgamma) < .80:
+#         qual = 'Strong'        
+#     else:
+#         qual = 'Very strong'
+    
+#     n = myCrosstable.sum().sum()
+    
+#     Z1 = GKgamma * ((P + Q) / (n * (1 - GKgamma**2)))**0.5
+    
+#     forASE0 = 0
+#     forASE1 = 0
+#     for i in range(nRows):
+#         for j in range(nCols):
+#             forASE0 = forASE0 + list(myCrosstable.iloc[i])[j] * (Q * C[i][j] - P * D[i][j])**2
+#             forASE1 = forASE1 + list(myCrosstable.iloc[i])[j] * (C[i][j] - D[i][j])**2
+
+#     ASE0 = 4 * (forASE0)**0.5 / (P + Q)**2
+#     ASE1 = 2 * (forASE1 - (P - Q)**2 / n)**0.5 / (P + Q)        
+#     Z2 = GKgamma / ASE0
+#     Z3 = GKgamma / ASE1
+    
+#     p1 = norm.sf(Z1)
+#     p2 = norm.sf(Z2)
+#     p3 = norm.sf(Z3)
+    
+#     zvalues = [Z1] + [Z2] + [Z3]
+#     pvalues = [p1] + [p2] + [p3]
+            
+    return GKgamma# (GKgamma,qual), zvalues, pvalues
+
+def tabular_corrnet(md, mdpred_voi):
+    '''Calculate correlations (will need to take absolute value) for cont-cont using Spearman's rho,
+         cont-cat using logistic regression on the categorical (max of balanced acc, adj., i.e., Youden's J),
+         and Goodman Kruskal gamma for cat-cat variable comparisons.
+    
+    Arguments:
+      md (pd.DataFrame): of mixed categorical and continuous variables. Must have a split column specifying train and
+        test splits so logistic regression can be run
+      mdpred_voi (dict): specify name of column in md as a key and the type of var as a value, accepts 'continuous' or 'categorical' 
+        values in order to trigger the appropriate analysis.
+        
+    Returns:
+      pd.DataFrame, nx.Graph
+    '''
+    from scipy.stats import spearmanr
+    from sklearn.linear_model import LogisticRegression
+    import sklearn.metrics as sklmetrics
+    from sklearn.exceptions import ConvergenceWarning
+    variables = list(mdpred_voi.keys())
+    df = pd.DataFrame(index=variables, columns=variables)
+    for i in range(len(variables)):
+        for j in range(len(variables)):
+            if i<=j:
+                continue
+            else:
+                k, kk = variables[i], variables[j]
+                v, vv = mdpred_voi[k], mdpred_voi[kk]
+                if v == 'continuous' and vv == 'continuous':
+                    # spearman's rho 
+                    rho, p = spearmanr(md[k], md[kk])
+                    df.loc[k, kk] = rho
+                    df.loc[kk, k] = rho
+                elif (v == 'continuous' and vv == 'categorical') or (v == 'categorical' and vv == 'continuous'):
+                    # logistic regression
+                    contvar = k if v == 'continuous' else kk
+                    catvar = k if v == 'categorical' else kk
+                    X_train = md.loc[md['split']=='train', contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
+                    X_test = md.loc[md['split']=='test', contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
+                    y_train = md.loc[md['split']=='train', catvar]
+                    y_test = md.loc[md['split']=='test', catvar]
+                    if len(y_train.unique()) < 1:
+                        print(f"only one val found for {catvar}")
+                    elif len(y_train.unique()) > 2:
+                        y_train = y_train.to_numpy(dtype=int)
+                        y_test = y_test.to_numpy(dtype=int)
+                        y_train_wide = np.zeros((y_train.shape[0], len(np.unique(y_train))), dtype=int)
+                        y_test_wide = np.zeros((y_test.shape[0], len(np.unique(y_train))), dtype=int)
+                        y_train_wide[np.arange(y_train.shape[0]), y_train] = 1
+                        y_test_wide[np.arange(y_test.shape[0]), y_test] = 1
+
+                        y_train = y_train_wide
+                        del y_train_wide
+                        y_test = y_test_wide 
+                        del y_test_wide
+                    else:
+                        y_train = y_train.to_numpy(dtype=int).reshape(-1, 1)
+                        y_test = y_test.to_numpy(dtype=int).reshape(-1, 1)
+                    balanced_acc = [] # Youden's J
+                    for j in range(y_train.shape[1]):
+                        lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
+                        lr.fit(X_train, y_train[:, j])
+                        balanced_acc.append(
+                            sklmetrics.balanced_accuracy_score(y_test[:, j], lr.predict(X_test), adjusted=True)
+                        )
+                    df.loc[k, kk] = np.max(balanced_acc) # max agg?
+                    df.loc[kk, k] = np.max(balanced_acc) # max agg?
+                else:
+                    # cat v. cat
+                    GKgamma = wearerr.goodmanKruskalgamma(md, k, kk)
+                    df.loc[k, kk] = GKgamma 
+                    df.loc[kk, k] = GKgamma
+    return df
+
+def range_scale(x, min_target=0, max_target=1):
+    return ((x - np.min(x)) / (np.max(x) - np.min(x)))*(max_target - min_target) + min_target
+
+def sigvars_per_cluster(metadata, voi, cluster_key='leiden', bonferonni_crct=True, verbose=True):
+    '''Exclusive significance in cluster that is enriched categorically or has log2FC average >=0.5.'''
+    def pval2sigvarlist(res, p_cutoff=0.001 / len(voi.keys()) if bonferonni_crct else 0.001, min_l2fc=0.5):
+        filtered_res = {k:[] for k in res.keys()}
+        for cid in res.keys():
+            other_cids = [i for i in res.keys() if i!=cid]
+            for var, val in res[cid].items():
+                if (val[0] <= p_cutoff and not any([True if res[k][var][0] <= p_cutoff else False for k in other_cids])) and (isinstance(val[1], np.float32) and np.abs(val[1]) >= min_l2fc):
+                    filtered_res[cid].append({'name': '{}_l2fc(c-rest)={:.2f}'.format(var, val[1]),
+                                              'P_adj': val[0] / len(voi.keys()) if bonferonni_crct else val[0], 'log2fc(c-rest)': val[1]})
+                elif (val[0] <= p_cutoff and not any([True if res[k][var][0] <= p_cutoff else False for k in other_cids])) and (isinstance(val[1], pd.DataFrame) and np.unravel_index(np.argmax(val[1].abs()), val[1].shape)[1] == 1):
+                    idx = np.unravel_index(np.argmax(val[1].abs()), val[1].shape)
+                    filtered_res[cid].append({'name': '{}={} enriched by {:.2f}-%'.format(var, val[1].index[idx[0]], 100*val[1].iloc[idx]),
+                                         'P_adj': val[0] / len(voi.keys()) if bonferonni_crct else val[0], 'obs/exp-1': val[1]})
+        return filtered_res
+    from scipy.stats import chi2_contingency
+    from scipy.stats import kruskal
+    results = {c:{} for c in np.sort(metadata[cluster_key].unique())}
+    # one-vs-rest scheme
+    for i, c in enumerate(np.sort(metadata[cluster_key].unique())):
+        metadata['cluster_part'] = (metadata[cluster_key] == c)
+        for ii, v in enumerate(voi.keys()):
+            if voi[v] == 'continuous':
+                v_c = metadata.loc[metadata[cluster_key]==c, v]
+                v_notc = metadata.loc[metadata[cluster_key]!=c, v]
+                statistic, p = kruskal(v_c, v_notc)
+                metric = np.log2(np.nanmean(v_c)) - np.log2(np.nanmean(v_notc)) # log2FC
+                metric = np.float32(metric)
+            else:
+                obs = metadata.groupby([v, 'cluster_part']).size().unstack(fill_value=0)
+                chi2, p, dof, expected = chi2_contingency(obs) # Fischer's?
+                metric = ((obs / expected) - 1) # obs/expected ratio
+            results[c][v] = ( p, metric )
+    out = pval2sigvarlist(results)
+    if verbose:
+        for k in np.sort(list(out.keys())):
+            for v in out[k]:
+                print('cluster_id: {}, annotation: {}'.format(k, v['name'])) 
+    return out

@@ -45,11 +45,13 @@ def eval_output(output, target, tasktype='regression', n_trials=10, nan20=False)
         if not isinstance(output, np.ndarray):
             rho, p = spearmanr(output.numpy(), target.numpy())
             mae = (output - target).abs().mean().item()
-            mape = ((output - target)/target).abs().mean().item()
+            mape = ((output - target)/target).abs().mean().item() # not numerically stable; take nanmean
         else: 
             rho, p = spearmanr(output, target)
             mae = np.mean(np.abs((output - target)))
-            mape = np.mean(np.abs((output - target)/target))
+            mape = (output - target)/target
+            mape[np.isinf(mape)] = np.nan
+            mape = np.nanmean(np.abs(mape))
         return {'mae': mae, 'mape': mape, 'rho': rho, 'P_rho': p}
     else:
         # AU-PRC vs. random (AU-PRC adjusted)
