@@ -19,6 +19,7 @@
 | :----------------------: | :-------------------------------------------: |
 | model embeddings to csv  | notebooks/eval_merge_model_out_to_md.ipynb    |
 | merge model and metadata | notebooks/eval_merge_model_out_to_md.ipynb    |
+|  | notebooks/.ipynb    |
 
 
 # Experiments

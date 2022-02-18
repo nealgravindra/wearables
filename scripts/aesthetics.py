@@ -60,7 +60,7 @@ sleep_cmap = {0:'#FAD02C', 1:'#333652'}
 
 md_node_annotation = {
     'marital': 'Social determinants of health',
-    'gestage_by': 'Pregnancy outcome',
+    'gestage_by': 'Procedural',
     'ethnicity': 'Social determinants of health',
     'race': 'Social determinants of health',
     'bmi_1vis': 'Activity-related',
@@ -90,18 +90,18 @@ md_node_annotation = {
     'rh': 'Pregnancy outcome',
     'corticosteroids': 'Pregnancy outcome',
     'abuse': 'Social determinants of health',
-    'assist_repro': 'Pregnancy outcome',
+    'assist_repro': 'Procedural',
     'gyn_infection': 'Pregnancy outcome',
     'maternal_del_weight': 'Pregnancy outcome',
-    'ptb_37wks': 'Pregnancy outcomes',
-    'art_excess': 'Labs',
-    'art_lactate': 'Labs',
-    'ven_ph': 'Labs',
-    'ven_pco2': 'Labs',
-    'ven_lactate': 'Labs',
-    'anes_type': 'Pregnancy outcome',
-    'epidural': 'Pregnancy outcome',
-    'deliv_mode': 'Pregnancy outcome',
+    'ptb_37wks': 'Pregnancy outcome',
+    'art_excess': 'Procedural',
+    'art_lactate': 'Procedural',
+    'ven_ph': 'Procedural',
+    'ven_pco2': 'Procedural',
+    'ven_lactate': 'Procedural',
+    'anes_type': 'Procedural',
+    'epidural': 'Procedural',
+    'deliv_mode': 'Procedural',
     'infant_wt': 'Pregnancy outcome',
     'infant_length': 'Pregnancy outcome',
     'head_circ': 'Pregnancy outcome',
@@ -118,7 +118,7 @@ md_node_annotation = {
     'months_noprego1': 'Pregnancy outcome',
     'premature_birth1': 'Pregnancy outcome',
     'stress1_1': 'Stress-related',
-    'stress2_1': 'Stressrelated',
+    'stress2_1': 'Stress-related',
     'stress3_1': 'Stress-related',
     'stress4_1': 'Stress-related',
     'stress5_1': 'Stress-related',
@@ -140,6 +140,7 @@ md_node_annotation = {
     'talking1': 'Sleep-quality',
     'afterlunch1': 'Sleep-quality',
     'cartraffic1': 'Sleep-quality',
+    'edinb1_1trim': 'Depression-related',
     'edinb2_1trim': 'Depression-related',
     'edinb3_1trim': 'Depression-related',
     'edinb4_1trim': 'Depression-related',
@@ -161,3 +162,31 @@ md_node_annotation = {
     'ave_logpseudocount_night': 'Activity-related',
     'KPAS': 'Activity-related'
 }
+
+# md_node_category_cmap = {
+#     'Pregnancy outcome': '#171a21',
+#     'Comorbidities': '#617073',
+#     'Sleep-quality': '#7a93ac',
+#     'Activity-related': '#92bceka',
+#     'Social determinants of health': '#afb3f7',
+#     'Depression-related': '#8db580',
+#     'Stress-related': '#efd6ac',
+#     'Labs': '#c44900'
+# }
+
+# 9 cols: 
+arr = ["b0f2b4","baf2e9","bad7f2","f2bac9",
+       "f2e2ba","37393a","f991cc","6d696a",
+       "2c4251"]
+
+md_node_category_cmap = {
+    'Pregnancy outcome': '#b0f2b4',
+    'Comorbidities': '#baf2e9',
+    'Sleep-quality': '#bad7f2',
+    'Social determinants of health': '#f2bac9',
+    'Activity-related': '#f2e2ba',
+    'Depression-related': '#37393a',
+    'Procedural': '#f991cc',
+    'Stress-related': '#6d696a'
+}
+
