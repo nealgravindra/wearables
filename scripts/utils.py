@@ -455,3 +455,183 @@ def sigvars_per_cluster(metadata, voi, cluster_key='leiden', bonferonni_crct=Tru
             for v in out[k]:
                 print('cluster_id: {}, annotation: {}'.format(k, v['name'])) 
     return out
+
+
+# more detailed analysis 
+# compare expected vs observed in plot
+def group_stat(df, col, include_var_pred_performance=False, norm=True,
+                      groupby='Error group', 
+                      omit_cols=['index', 'record_id', 'pid', 'Absolute Error', 'yGA', 'yhatGA'],
+                      out_file=None):
+    def pd_chisq(df, feat, groupby='Error group'):
+        from scipy.stats import chi2_contingency
+        obs = df.groupby([groupby, feat]).size().unstack(fill_value=0)
+        chi2, p, dof, expected = chi2_contingency(obs)
+        return p, obs, expected
+    
+    if df[col].dtype == object:
+        p, obs, expected = pd_chisq(df, col, groupby=groupby)
+        expected = pd.DataFrame(expected, 
+                                index=obs.index.to_list(), 
+                                columns=obs.columns.to_list())
+        total = sum([v2 for k,v1 in obs.to_dict().items() for v2 in v1.values()])
+        p_obs = obs.to_dict()
+        p_exp = expected.to_dict()
+        for k in p_obs.keys():
+            p_obs[k] = {k:v/total for k,v in p_obs[k].items()}
+            p_exp[k] = {k:v/total for k,v in p_exp[k].items()}
+        out = {'Variable': col, 'P': p, 
+               'Tasktype': 'Classification', 
+               'Observed': obs.to_dict(),
+               'Expected': expected.to_dict(),
+               'pObserved': p_obs, 
+               'pExpected': p_exp,}
+    else:
+        p = pd_kruskalwallis(df, col, groupby=groupby)
+        out = {'Variable': col, 'P': p,
+               'Tasktype': 'Classification', 
+               'Observed': {'q{}'.format(i):df.groupby(groupby)[col].quantile(i).to_dict() for i in [0.25, 0.5, 0.75]}}
+    return out
+
+def extract_ratio(df, dfcolname, value, group, groupby='Error group', shuffle=False, randomize=False):
+    '''ratio of obs/expected
+    
+    Arguments:
+      value: cateogrical value
+      group: specific group in groupby column
+      shuffle: draw random samples of that error group to get an estimate of the metric
+      randomize: compare obs to null dist for permutation test
+    '''
+    df = df.copy(deep=True)
+    if shuffle:
+        # turn off randomize
+        dt = pd.DataFrame()
+        for g in df[groupby].unique():
+            dt = dt.append(df.loc[df[groupby]==g, :].sample((df[groupby]==g).sum(), replace=True), ignore_index=True)
+        df = dt
+    if randomize:
+        df[groupby] = df[groupby].sample(frac=1, replace=True).to_list()
+    sub_res = group_stat(df, dfcolname, groupby=groupby)
+    obs = pd.DataFrame(sub_res['pObserved'])
+    exp = pd.DataFrame(sub_res['pExpected'])
+    factor = obs/exp
+#     return factor
+    return factor.loc[group, value]
+
+def md_group_diffs(df, voi={'ptb_37wks': 'categorical',
+                            'GA': 'continuous'}, 
+                   groupby='Error group',
+                   ratio_only=False,
+                   out_file=None):
+    
+    def pd_chisq(df, feat, groupby='Error group'):
+        from scipy.stats import chi2_contingency
+        obs = df.groupby([groupby, feat]).size().unstack(fill_value=0)
+        chi2, p, dof, expected = chi2_contingency(obs)
+        return p, obs, expected
+    
+    def pd_kruskalwallis(df, feat, groupby='Error group'):
+        from scipy.stats import kruskal
+        size = []
+        for i, g in enumerate(df[groupby].unique()):
+            dt = df.loc[df[groupby]==g, feat].to_numpy()
+            size.append(dt.shape[0])
+            if i==0:
+                X = dt
+            else:
+                X = np.concatenate((X, dt))
+        X = np.split(X, np.cumsum(size[:-1]))
+        statistic, p = kruskal(*X)
+        return p
+    
+    # main block
+    results = {g: {} for g in voi.keys()}
+    for g, dtype in voi.items():
+
+        if dtype == 'categorical':
+            p, obs, expected = pd_chisq(df, g, groupby=groupby)
+            expected = pd.DataFrame(expected, 
+                                    index=obs.index.to_list(), 
+                                    columns=obs.columns.to_list())
+            total_obs = sum([v2 for k,v1 in obs.to_dict().items() for v2 in v1.values()])
+            total_exp = sum([v2 for k,v1 in expected.to_dict().items() for v2 in v1.values()])
+            p_obs = obs.to_dict()
+            p_exp = expected.to_dict()
+            for k in p_obs.keys():
+                p_obs[k] = {k:v/total_obs for k,v in p_obs[k].items()}
+                p_exp[k] = {k:v/total_exp for k,v in p_exp[k].items()}
+            results[g] = {'Variable': g, 'P': p, 
+                   'Tasktype': 'Classification', 
+                   'Observed': obs.to_dict(),
+                   'Expected': expected.to_dict(),
+                   'pObserved': p_obs, 
+                   'pExpected': p_exp,}
+        else:
+            p = pd_kruskalwallis(df, g, groupby=groupby)
+            results[g] = {
+                'Variable': g, 'P': p,
+                'Tasktype': 'Classification', 
+                'Observed': {'q{}'.format(i):df.groupby(groupby)[g].quantile(i).to_dict() for i in [0.25, 0.5, 0.75]},
+                'Expected': {'q{}'.format(i):df[g].quantile(i) for i in [0.25, 0.5, 0.75]},
+                'log2_grpVall' : {str(gg):np.log2(df.loc[df[groupby]==gg, g].mean()) - np.log2(df[g].mean()) for gg in df[groupby].unique()},
+            }
+    return results
+
+
+def sample_metric(df, 
+                  voi={'ptb_37wks': 'categorical','GA': 'continuous'}, 
+                  value=None, n_samples=100, groupby='Error group'):
+    '''ratio of obs/expected
+
+    Arguments:
+      value (dict): [optional, Default=None] provide dict with value to select from col of table
+    '''
+    import random
+    dt = df.sample(n_samples, replace=True)
+    grp = dt[groupby].to_list()
+    random.shuffle(grp)
+    dt['{}_shuffled'.format(groupby)] = grp
+    results = {k: {} for k in voi.keys()}
+    for i, (k, dtype) in enumerate(voi.items()):
+        sub_res = md_group_diffs(dt, {k:voi[k]}, groupby=groupby)[k]
+        sub_res_null = md_group_diffs(dt, {k:voi[k]}, groupby='{}_shuffled'.format(groupby))[k]
+        if dtype=='categorical':
+            # obs
+            obs = pd.DataFrame(sub_res['pObserved'])
+            exp = pd.DataFrame(sub_res['pExpected'])
+            factor = obs/exp
+            # null
+            obs_null = pd.DataFrame(sub_res_null['pObserved'])
+            exp_null = pd.DataFrame(sub_res_null['pExpected'])
+            factor_null = obs_null/exp_null
+            if value is None:
+                idx = np.unravel_index(np.argmax((factor - 1).abs().to_numpy()), factor.shape)
+                results[k] = factor[idx[1]].to_dict()
+                results['{}_null'.format(k)] = factor_null[idx[1]].to_dict()
+            else:
+                results[k] = factor[value[k]].to_dict()
+                results['{}_null'.format(k)] = factor_null[value[k]].to_dict()
+        elif dtype=='continuous':
+            results[k] = sub_res['log2_grpVall']
+            results['{}_null'.format(k)] = sub_res_null['log2_grpVall']
+        else:
+            print('wrong dtype specified in voi')
+    return results
+
+def get_max_value(df, 
+                  voi={'ptb_37wks': 'categorical','GA': 'continuous'},
+                  groupby='Error group'):
+    value = {}
+    for i, (k, dtype) in enumerate(voi.items()):
+        sub_res = md_group_diffs(df, {k:voi[k]}, groupby=groupby)[k]
+        if dtype=='categorical':
+            # obs
+            obs = pd.DataFrame(sub_res['pObserved'])
+            exp = pd.DataFrame(sub_res['pExpected'])
+            factor = obs/exp
+
+            idx = np.unravel_index(np.argmax((factor - 1).abs().to_numpy()), factor.shape)
+            value[k] = factor[idx[1]].name
+        else:
+            continue
+    return value
