@@ -1,4 +1,4 @@
-import seaborn as sns
+ort seaborn as sns
 import matplotlib.pyplot as plt
 
 # %matplotlib inline
@@ -300,4 +300,10 @@ max_categorical_obsVexp_ratio = {
     'edinb10_1trim': 4.0,
 }
     
+grp_cmap = {
+    'all': '#F67280',
+    'Higher-than-actual': '#C06C84',
+    'Lower-than-actual': '#6C5B7B',
+    'lt10wks': '#355C7D',
+}
 

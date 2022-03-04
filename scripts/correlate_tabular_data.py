@@ -4,6 +4,7 @@ import datetime
 import pandas as pd
 import numpy as np
 import random
+from imblearn.over_sampling import SMOTE
 
 def goodmanKruskalgamma(data, ordinal1, ordinal2):
     # REF: https://colab.research.google.com/drive/1w1t7T67eKLoLzXfoRv4ZG6DsSK4q0UQK#scrollTo=wlWJK2B8DVMN
@@ -187,7 +188,117 @@ def tabular_corrnet(md, mdpred_voi):
                     df.loc[kk, k] = GKgamma
     return df
 
-def colVall_corr(md, coi, mdpred_voi, groupby=None, verbose=True):
+# def colVall_corr(md, coi, mdpred_voi, groupby=None, verbose=True):
+#     '''Correlate one column with all others for cont-cont using Spearman's rho,
+#          cont-cat using logistic regression on the categorical (max of balanced acc, adj., i.e., Youden's J),
+#          and Goodman Kruskal gamma for cat-cat variable comparisons.
+    
+#     Arguments:
+#       md (pd.DataFrame): of mixed categorical and continuous variables. Must have a split column specifying train and
+#         test splits so logistic regression can be run
+#       coi (str): specify column name with which to correlate all in mdpred_voi with (self-corr ignored)
+#       mdpred_voi (dict): specify name of column in md as a key and the type of var as a value, accepts 'continuous' or 'categorical' 
+#         values in order to trigger the appropriate analysis.
+#       groupby
+        
+#     Returns:
+#       pd.Series
+#     '''
+#     from scipy.stats import spearmanr
+#     from sklearn.linear_model import LogisticRegression
+#     import sklearn.metrics as sklmetrics
+#     from sklearn.exceptions import ConvergenceWarning
+#     variables = [i for i in list(mdpred_voi.keys()) if i!=coi]
+#     grps = ['all']
+#     if groupby is not None:
+#         grps += list(md[groupby].unique())
+#     df = pd.DataFrame(index=variables, columns=grps)
+#     for i in grps:
+#         if verbose:
+#             group_t = time.time()
+#             print(f"Starting grp: {i}")
+#         dt = md if i=='all' else md.loc[md[groupby]==i, :]
+#         dt = dt.reset_index()
+#         # fast recreation of splits from df 
+#         split = ['train']*int(0.8*len(dt.index)) + ['test']*(len(dt.index) - int(0.8*len(dt.index)))
+#         random.shuffle(split)
+#         dt['split'] = split
+#         for j in range(len(variables)):
+#             k, kk = coi, variables[j]
+#             v, vv = mdpred_voi[k], mdpred_voi[kk]
+#             if v == 'continuous' and vv == 'continuous':
+#                 # spearman's rho 
+#                 rho, p = spearmanr(dt[k], dt[kk])
+#                 df.loc[kk, i] = rho
+#             elif (v == 'continuous' and vv == 'categorical') or (v == 'categorical' and vv == 'continuous'):
+#                 # logistic regression
+#                 contvar = k if v == 'continuous' else kk
+#                 catvar = k if v == 'categorical' else kk
+#                 X_train = dt.loc[dt['split']=='train', contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
+#                 X_test = dt.loc[dt['split']=='test', contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
+#                 y_train = dt.loc[dt['split']=='train', catvar]
+#                 y_test = dt.loc[dt['split']=='test', catvar]
+#                 if len(y_train.unique()) < 1:
+#                     print(f"only one val found for {catvar}")
+#                 elif len(y_train.unique()) > 2:
+#                     try:
+#                         y_train = y_train.to_numpy(dtype=int)
+#                     except ValueError:
+#                         encoding = np.sort(y_train.unique()) # e.g., ['Evening', 'Morning', 'NA'] = [0, 1, 2]
+#                         y_train = y_train.map({orig_key:iii for iii, orig_key in enumerate(encoding)}).to_numpy(dtype=int)
+#                     try:
+#                         y_test = y_test.to_numpy(dtype=int)
+#                     except ValueError:
+#                         y_test = y_test.map({orig_key:iii for iii, orig_key in enumerate(encoding)}).to_numpy(dtype=int)
+#                     y_train_wide = np.zeros((y_train.shape[0], len(np.unique(y_train))), dtype=int)
+#                     y_test_wide = np.zeros((y_test.shape[0], len(np.unique(y_train))), dtype=int)
+#                     try: # error comes for visit_num because it's categorical but not in [0, 1, 2,] rather [1, 2, 3] so needs mod (just drop it)
+#                         y_train_wide[np.arange(y_train.shape[0]), y_train] = 1
+#                     except IndexError: # missing a value, not properly encoded
+#                         encoding = {orig_key:iii for iii, orig_key in enumerate(np.sort(np.unique(y_train)))}
+#                         for orig_val in encoding.keys():
+#                             y_train[y_train == orig_val] = encoding[orig_val]
+#                             y_test[y_test == orig_val] = encoding[orig_val]
+#                         y_train_wide[np.arange(y_train.shape[0]), y_train] = 1
+#                         y_test_wide[np.arange(y_test.shape[0]), y_test] = 1
+#                     y_train = y_train_wide
+#                     del y_train_wide
+#                     y_test = y_test_wide 
+#                     del y_test_wide
+#                 else:
+#                     try:
+#                         y_train = y_train.to_numpy(dtype=int).reshape(-1, 1)
+#                     except ValueError: # not encoded yet
+#                         encoding = np.sort(y_train.unique()) # e.g., ['Weeday', 'Weekend'] = [0, 1]
+#                         y_train = y_train.map({k:i for i, k in enumerate(encoding)}).to_numpy(dtype=int).reshape(-1, 1)
+#                     try:
+#                         y_test = y_test.to_numpy(dtype=int).reshape(-1, 1)
+#                     except ValueError:
+#                         y_test = y_test.map({k:i for i, k in enumerate(encoding)}).to_numpy(dtype=int).reshape(-1, 1)
+#                 balanced_acc = [] # Youden's J
+#                 for jj in range(y_train.shape[1]):
+#                     lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
+#                     try:
+#                         lr.fit(X_train, y_train[:, jj])
+#                     except ValueError: # only one class:
+#                         return (X_train, y_train, kk)
+#                         balanced_acc.append(np.nan)
+#                         continue
+#                     balanced_acc.append(
+#                         sklmetrics.balanced_accuracy_score(y_test[:, jj], lr.predict(X_test), adjusted=True)
+#                     )
+#                 df.loc[kk, i] = np.max(balanced_acc) # max agg?
+#             else:
+#                 # cat v. cat
+#                 GKgamma = goodmanKruskalgamma(dt, k, kk)
+#                 df.loc[kk, i] = GKgamma 
+#             if verbose and j % 50 == 0:
+#                 print(f"  through {j+1} of {len(variables)} vars in {time.time() - group_t:.0f}-s")
+#         if verbose:
+#             print(f"\n  ... through grp {i} in {(time.time() - group_t)/60:.1f}-min")
+#     return df
+
+def colVall_corr(md, coi, mdpred_voi, groupby=None, verbose=True, sample_groups='record_id'):
     '''Correlate one column with all others for cont-cont using Spearman's rho,
          cont-cat using logistic regression on the categorical (max of balanced acc, adj., i.e., Youden's J),
          and Goodman Kruskal gamma for cat-cat variable comparisons.
@@ -207,6 +318,8 @@ def colVall_corr(md, coi, mdpred_voi, groupby=None, verbose=True):
     from sklearn.linear_model import LogisticRegression
     import sklearn.metrics as sklmetrics
     from sklearn.exceptions import ConvergenceWarning
+    from sklearn.model_selection import cross_val_score #GroupKFold
+    from sklearn.preprocessing import label_binarize
     variables = [i for i in list(mdpred_voi.keys()) if i!=coi]
     grps = ['all']
     if groupby is not None:
@@ -218,10 +331,6 @@ def colVall_corr(md, coi, mdpred_voi, groupby=None, verbose=True):
             print(f"Starting grp: {i}")
         dt = md if i=='all' else md.loc[md[groupby]==i, :]
         dt = dt.reset_index()
-        # fast recreation of splits from df 
-        split = ['train']*int(0.8*len(dt.index)) + ['test']*(len(dt.index) - int(0.8*len(dt.index)))
-        random.shuffle(split)
-        dt['split'] = split
         for j in range(len(variables)):
             k, kk = coi, variables[j]
             v, vv = mdpred_voi[k], mdpred_voi[kk]
@@ -233,59 +342,47 @@ def colVall_corr(md, coi, mdpred_voi, groupby=None, verbose=True):
                 # logistic regression
                 contvar = k if v == 'continuous' else kk
                 catvar = k if v == 'categorical' else kk
-                X_train = dt.loc[dt['split']=='train', contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
-                X_test = dt.loc[dt['split']=='test', contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
-                y_train = dt.loc[dt['split']=='train', catvar]
-                y_test = dt.loc[dt['split']=='test', catvar]
-                if len(y_train.unique()) < 1:
-                    print(f"only one val found for {catvar}")
-                elif len(y_train.unique()) > 2:
-                    try:
-                        y_train = y_train.to_numpy(dtype=int)
-                    except ValueError:
-                        encoding = np.sort(y_train.unique()) # e.g., ['Evening', 'Morning', 'NA'] = [0, 1, 2]
-                        y_train = y_train.map({orig_key:iii for iii, orig_key in enumerate(encoding)}).to_numpy(dtype=int)
-                    try:
-                        y_test = y_test.to_numpy(dtype=int)
-                    except ValueError:
-                        y_test = y_test.map({orig_key:iii for iii, orig_key in enumerate(encoding)}).to_numpy(dtype=int)
-                    y_train_wide = np.zeros((y_train.shape[0], len(np.unique(y_train))), dtype=int)
-                    y_test_wide = np.zeros((y_test.shape[0], len(np.unique(y_train))), dtype=int)
-                    try: # error comes for visit_num because it's categorical but not in [0, 1, 2,] rather [1, 2, 3] so needs mod (just drop it)
-                        y_train_wide[np.arange(y_train.shape[0]), y_train] = 1
-                    except IndexError: # missing a value, not properly encoded
-                        encoding = {orig_key:iii for iii, orig_key in enumerate(np.sort(np.unique(y_train)))}
-                        for orig_val in encoding.keys():
-                            y_train[y_train == orig_val] = encoding[orig_val]
-                            y_test[y_test == orig_val] = encoding[orig_val]
-                        y_train_wide[np.arange(y_train.shape[0]), y_train] = 1
-                    y_test_wide[np.arange(y_test.shape[0]), y_test] = 1
-                    y_train = y_train_wide
-                    del y_train_wide
-                    y_test = y_test_wide 
-                    del y_test_wide
+                X_train = dt.loc[:, contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
+                y_train = dt.loc[:, catvar]
+                # convert to int
+                if len(y_train.unique()) == 1:
+                    print(f"\nonly one val for {catvar}")
+                    print('... cannot fit one class only. Reconsider its inclusion. Skipping this var.')
+                    continue
                 else:
                     try:
-                        y_train = y_train.to_numpy(dtype=int).reshape(-1, 1)
-                    except ValueError: # not encoded yet
-                        encoding = np.sort(y_train.unique()) # e.g., ['Weeday', 'Weekend'] = [0, 1]
-                        y_train = y_train.map({k:i for i, k in enumerate(encoding)}).to_numpy(dtype=int).reshape(-1, 1)
-                    try:
-                        y_test = y_test.to_numpy(dtype=int).reshape(-1, 1)
+                        y_train = y_train.to_numpy(dtype=int)
+                        if len(np.unique(y_train)) > 2:
+                            y_train = label_binarize(y_train, classes=np.sort(np.unique(y_train)))
+                        else:
+                            y_train = y_train.reshape(-1, 1)
                     except ValueError:
-                        y_test = y_test.map({k:i for i, k in enumerate(encoding)}).to_numpy(dtype=int).reshape(-1, 1)
-                balanced_acc = [] # Youden's J
+                        y_train = label_binarize(y_train, classes=np.sort(np.unique(y_train)))
+                # SMOTE
+                clf_metric = [] # AU-ROC
                 for jj in range(y_train.shape[1]):
-                    lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
+                    oversample = SMOTE(k_neighbors=3)
+                    # print(f'kk: {kk}\tX_train: {X_train.shape}\ty_train: {y_train.shape}')
                     try:
-                        lr.fit(X_train, y_train[:, jj])
-                    except ValueError: # only one class:
-                        balanced_acc.append(np.nan)
+                        X_train_mod, y_train_mod = oversample.fit_resample(X_train, y_train[:, jj])
+                    except ValueError:
+                        print("\n{}'s {}-th class cannot be computed. Too few n_samples. Skipping".format(kk, jj)) 
+                        if verbose:
+                            print('{} class frequencies:'.format(kk))
+                            for jj in range(y_train.shape[1]):
+                                print(f"j: {jj}\t0: {(y_train[:, jj]==0).sum()}\t1: {(y_train[:, jj]==1).sum()}")
                         continue
-                    balanced_acc.append(
-                        sklmetrics.balanced_accuracy_score(y_test[:, jj], lr.predict(X_test), adjusted=True)
-                    )
-                df.loc[kk, i] = np.max(balanced_acc) # max agg?
+                    del oversample                
+                
+                    # model/eval
+                    lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
+                    scores = cross_val_score(lr, X_train_mod, y_train_mod, cv=5, scoring='roc_auc')
+                    clf_metric.append(np.nanmean(scores))
+                try:
+                    df.loc[kk, i] = np.nanmax(clf_metric) 
+                except ValueError:
+                    print("\n{}:{} association cannot be computed: no model completed".format(k, kk)) 
+                    
             else:
                 # cat v. cat
                 GKgamma = goodmanKruskalgamma(dt, k, kk)
