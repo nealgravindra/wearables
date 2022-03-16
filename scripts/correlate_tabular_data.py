@@ -393,59 +393,100 @@ def colVall_corr(md, coi, mdpred_voi, groupby=None, verbose=True, sample_groups=
             print(f"\n  ... through grp {i} in {(time.time() - group_t)/60:.1f}-min")
     return df
 
+def extract_macroave(kfold_nclass_output):
+    au_roc = []
+    for i, kfold in enumerate(kfold_nclass_output.keys()):
+        for j, n_class in enumerate(range(len(kfold_nclass_output[kfold][0].keys()))):
+            if i==0 and j==0:
+                x = kfold_nclass_output[kfold][0][n_class]
+                y = kfold_nclass_output[kfold][1][n_class]
+            else:
+                y = np.vstack((y, kfold_nclass_output[kfold][1][n_class]))
+            au_roc.append(kfold_nclass_output[kfold][2][n_class])
+    return x, y, au_roc
 
-def elasticnet(df, contvar, catvar):
+def elasticnet(df, contvar, catvar, id_key='uid'):
     '''Association by effectiveness of the classifier or coefficients.
     
     Arguments:
       df (pd.DataFrame)
       contvar (str): specify name of continuous variable in df (colname)
       catvar (str): specify name of categorical variable in df (colname)
+      id_key (str) [optional, Default='uid']:  do the CV splitting on these groups,
+        but this is error prone because of the specific way the df was constructed. 
     '''
     from sklearn.linear_model import LogisticRegression
     import sklearn.metrics as sklmetrics
-    from sklearn.model_selection import cross_val_score #GroupKFold
     from sklearn.preprocessing import label_binarize
+    from sklearn.model_selection import GroupShuffleSplit, ShuffleSplit
     
-    X_train = df.loc[:, contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
-    y_train = df.loc[:, catvar]
-    
+    X = df.loc[:, contvar].to_numpy(dtype=np.float64).reshape(-1, 1)
+    y = df.loc[:, catvar]
+    if id_key is not None:
+        groups = [i.split('_')[0] for i in df[id_key]] # error prone
+        splitter = GroupShuffleSplit(n_splits=5, train_size=0.8, random_state=42)
+    else:
+        groups = None
+        splitter = ShuffleSplit(n_splits=5, train_size=0.8, random_state=42)
+        
     # convert to int
-    if len(y_train.unique()) == 1:
+    if len(y.unique()) == 1:
         print(f"\nonly one val for {catvar}")
         print('... cannot fit one class only. Reconsider its inclusion. Skipping this var.')
         return None
     
     else:
         try:
-            y_train = y_train.to_numpy(dtype=int)
-            if len(np.unique(y_train)) > 2:
-                y_train = label_binarize(y_train, classes=np.sort(np.unique(y_train)))
+            y = y.to_numpy(dtype=int)
+            if len(np.unique(y)) > 2:
+                y = label_binarize(y, classes=np.sort(np.unique(y)))
             else:
-                y_train = y_train.reshape(-1, 1)
+                y = y.reshape(-1, 1)
         except ValueError:
-            y_train = label_binarize(y_train, classes=np.sort(np.unique(y_train)))
+            y = label_binarize(y, classes=np.sort(np.unique(y)))
     
-    # SMOTE
+    # CV splits
     out = {} # 'class_nb': (model, scores)
-    for jj in range(y_train.shape[1]):
-        oversample = SMOTE(k_neighbors=3)
-        # print(f'kk: {kk}\tX_train: {X_train.shape}\ty_train: {y_train.shape}')
-        try:
-            X_train_mod, y_train_mod = oversample.fit_resample(X_train, y_train[:, jj])
-        except ValueError:
-            print("\n{}'s {}-th class cannot be computed. Too few n_samples. Skipping".format(kk, jj)) 
-            if verbose:
-                print('{} class frequencies:'.format(kk))
-                for jj in range(y_train.shape[1]):
-                    print(f"j: {jj}\t0: {(y_train[:, jj]==0).sum()}\t1: {(y_train[:, jj]==1).sum()}")
-            return None
-        del oversample                
-
-        # model/eval
-        lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
-        scores = cross_val_score(lr, X_train_mod, y_train_mod, cv=5, scoring='roc_curve')
-        out[f'class_{jj}'] = (lr, scores, X_train_mod, y_train_mod) # (lr, scores)
-        del lr, scores
-    return out
+    for i, (train_idx, test_idx) in enumerate(splitter.split(X, y, groups)):
+        X_train, y_train = X[train_idx], y[train_idx]
+        X_test, y_test = X[test_idx], y[test_idx]
         
+        # SMOTE
+        fpr, tpr = dict(), dict()
+        au_roc = dict()
+        for jj in range(y_train.shape[1]):
+            oversample = SMOTE(k_neighbors=3)
+            # print(f'kk: {kk}\tX_train: {X_train.shape}\ty_train: {y_train.shape}')
+            try:
+                X_train_mod, y_train_mod = oversample.fit_resample(X_train, y_train[:, jj])
+            except ValueError:
+                print("\n{}-th class cannot be computed. Too few n_samples. Skipping".format(jj)) 
+                if verbose:
+                    print('{} class frequencies:'.format(catvar))
+                    for jjj in range(y_train.shape[1]):
+                        print(f"j: {jjj}\t0: {(y_train[:, jjj]==0).sum()}\t1: {(y_train[:, jjj]==1).sum()}")
+                continue
+            del oversample                
+
+            # model/eval
+            lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
+            lr.fit(X_train_mod, y_train_mod)
+            (fpr[jj], tpr[jj], thresholds) = sklmetrics.roc_curve(y_test[:, jj], lr.predict_proba(X_test)[:, 1])
+            au_roc[jj] = sklmetrics.auc(fpr[jj], tpr[jj])
+            # scores = cross_val_score(lr, X_train_mod, y_train_mod, cv=5, scoring='roc_curve')
+        out[f'fold{i}'] = (fpr, tpr, au_roc) # (lr, scores)
+        del fpr, tpr, au_roc
+        
+    # macro-average 
+    for i, kfold in enumerate(out.keys()):
+        for j, n_class in enumerate(range(len(out[kfold][0].keys()))):
+            if i==0 and j==0:
+                all_fpr = out[kfold][0][n_class]
+            else:
+                all_fpr = np.concatenate((all_fpr, out[kfold][0][n_class]))
+    all_fpr = np.unique(all_fpr)
+    for i, kfold in enumerate(out.keys()):
+        for j, n_class in enumerate(range(len(out[kfold][0].keys()))):
+            out[kfold][1][n_class] = np.interp(all_fpr, out[kfold][0][n_class], out[kfold][1][n_class])
+            out[kfold][0][n_class] = all_fpr # or delete and store only once 
+    return (extract_macroave(out))
