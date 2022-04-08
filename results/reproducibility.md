@@ -11,6 +11,7 @@
 | Fig S3                  | notebooks/interp_featattr.ipynb, interp_featattr_pvals.ipynb                      |
 | Fig 4                   | notebooks/eval_model_embeddings.ipynb                                             |
 | Fig S4                  | notebooks/eval_model_embeddings.ipynb                                             |
+| Tab S4                  | notebooks/eval_model_embeddings.ipynb                                             |
 
 
 # Data
@@ -24,4 +25,7 @@
 
 # Experiments
 
+| Task                       | Code                                                      |
+| :------------------------: | :-------------------------------------------------------: |
+| optimize ts augmentations  | results/train_v44.csv and notebooks/eval_aug_exps.ipynb   |
 
