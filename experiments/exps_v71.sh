@@ -13,7 +13,7 @@ then
   for i in {1,2,3}
   do
     echo "starting "$var"_n"$i" on cuda:"$var""
-    python /home/ngrav/project/wearables/scripts/exps_v52.py --exp="itv52" --trial=$i --cuda_nb=$var > ./jobs/"itv52"_n"$i".log
+    python /home/ngrav/project/wearables/scripts/exps_v71.py --exp="itv71" --trial=$i --cuda_nb=$var > ./jobs/"itv71"_n"$i".log
     echo "done with n=""$i"
     let counter++
   done
@@ -24,7 +24,7 @@ then
   for i in {4,5,6}
   do
     echo "starting "$var"_n"$i" on cuda:"$var""
-    python /home/ngrav/project/wearables/scripts/exps_v52.py --exp="itv52" --trial=$i --cuda_nb=$var > ./jobs/"itv52"_n"$i".log
+    python /home/ngrav/project/wearables/scripts/exps_v71.py --exp="itv71" --trial=$i --cuda_nb=$var > ./jobs/"itv71"_n"$i".log
     echo "done with n=""$i"
     let counter++
   done
@@ -35,7 +35,7 @@ then
   for i in {7,8,9}
   do
     echo "starting "$var"_n"$i" on cuda:"$var""
-    python /home/ngrav/project/wearables/scripts/exps_v52.py --exp="itv52" --trial=$i --cuda_nb=$var > ./jobs/"itv52"_n"$i".log
+    python /home/ngrav/project/wearables/scripts/exps_v71.py --exp="itv71" --trial=$i --cuda_nb=$var > ./jobs/"itv71"_n"$i".log
     echo "done with n=""$i"
     let counter++
   done

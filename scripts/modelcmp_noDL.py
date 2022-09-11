@@ -36,6 +36,9 @@ from sktime.regression.compose._ensemble import ComposableTimeSeriesForestRegres
 from sktime.classification.compose import ComposableTimeSeriesForestClassifier
 from sktime.classification.distance_based import KNeighborsTimeSeriesClassifier
 
+# try to overcome
+
+
 class kNN():
     def __init__(self, n_trials=10, target_name='GA'):
         self.n_trials = n_trials
@@ -345,7 +348,7 @@ class TimeSeriesForest():
             for k, cv_fold in enumerate(data.Xy_train.keys()):
                 [(X_train, y_train), (X_val, y_val)] = data.Xy_train[cv_fold]
                 X_train, X_val = from_2d_array_to_nested(X_train), from_2d_array_to_nested(X_val)
-                tsf = ComposableTimeSeriesForestRegressor(
+                tsf = TimeSeriesRegressor(
                     n_jobs=-1) if data.tasktype=='regression' else ComposableTimeSeriesForestClassifier(
                     n_jobs=-1)
                 tsf.fit(X_train, y_train)
@@ -363,7 +366,7 @@ class TimeSeriesForest():
             X_train, y_train = data.Xy_train
             X_val, y_val = data.Xy_val
             X_train, X_val = from_2d_array_to_nested(X_train), from_2d_array_to_nested(X_val)
-            self.tsf = ComposableTimeSeriesForestRegressor(
+            self.tsf = TimeSeriesRegressor(
                 n_jobs=-1) if data.tasktype=='regression' else ComposableTimeSeriesForestClassifier(
                 n_jobs=-1)
             self.tsf.fit(X_train, y_train)
@@ -492,14 +495,15 @@ def exps_GA(n_trials=10, out_file=None):
     if out_file is not None:
         overall_results.to_csv(out_file)
     
-    # TimeSeriesForest
-    results = TimeSeriesForest(n_trials=n_trials).run_trials()
-    results = pd.DataFrame(results).T
-    results['model'] = 'TimeSeriesForest'
-    overall_results = overall_results.append(results)
+#     # TimeSeriesForest
+        # NOTE: there is an error in method definition of the sktime class now, preventing the run
+#     results = TimeSeriesForest(n_trials=n_trials).run_trials()
+#     results = pd.DataFrame(results).T
+#     results['model'] = 'TimeSeriesForest'
+#     overall_results = overall_results.append(results)
     
-    if out_file is not None:
-        overall_results.to_csv(out_file)
+#     if out_file is not None:
+#         overall_results.to_csv(out_file)
         
     # kNN-DTW, hog it
     results = kNNDTW(n_trials=3).run_trials()
@@ -513,4 +517,4 @@ def exps_GA(n_trials=10, out_file=None):
     return overall_results
 
 if __name__ == '__main__':
-    results = exps_GA(n_trials=10, out_file='/home/ngrav/project/wearables/results/model_cmp_nonDL.csv')
+    results = exps_GA(n_trials=10, out_file='/home/ngrav/project/wearables/results/model_cmp_nonDL_v71.csv')

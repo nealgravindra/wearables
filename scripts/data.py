@@ -441,7 +441,9 @@ class actigraphy(torch.utils.data.Dataset):
     
     
 class torch_dataloaders():
-    def __init__(self, target_name, prop_trainset=1., batch_size=32, filename='/home/ngrav/data/wearables/processed/MOD1000_modeldata.pkl'):
+    def __init__(self, target_name, prop_trainset=1., batch_size=32, 
+                 filter_cohort=False,
+                 filename='/home/ngrav/data/wearables/processed/MOD1000_modeldata.pkl'):
         self.data = self.load_preproced(filename)
         self.target_name = target_name
         self.batch_size = batch_size
@@ -449,7 +451,7 @@ class torch_dataloaders():
         self.prop_trainset = prop_trainset
         
         # split data and get dataloaders
-        self.split_data()
+        self.split_data(filter_cohort=filter_cohort)
         self.get_dataloaders()
         
     def load_preproced(self, filename):
@@ -458,11 +460,23 @@ class torch_dataloaders():
             f.close()
         return data
     
-    def split_data(self, train_ratio=0.7):
+    def split_data(self, train_ratio=0.7, filter_cohort=False, n_val=100):
         pids = np.unique([i.split('_')[0] for i in self.data['IDs'].keys()])
+        if filter_cohort:
+            print('\nRemoving some pids based on IDs provided:\n  start: n_ids={:d}'.format(len(pids))) 
+            if not os.path.exists('/home/ngrav/data/wearables/processed/List_1260.csv'):
+                print('Cannot find a csv with int list of valid IDs. Skipping filtering step and continuing.')
+                print('  end: n_ids: {:d}'.format(len(pids)))
+                # continue
+            else:
+                cohort = pd.read_csv('/home/ngrav/data/wearables/processed/List_1260.csv')
+                valid_ids = cohort['x'].to_list() # convert to int64?
+                pids = [i for i in pids if int(i.split('_')[0]) in valid_ids]
+                print('  end: n_ids={:d}'.format(len(pids)))
         train_pids = np.random.choice(pids, int(len(pids)*train_ratio*self.prop_trainset), replace=False)
         test_pids = [i for i in pids if i not in train_pids]
-        val_pids = np.random.choice(test_pids, int(len(test_pids)*0.5), replace=False)
+        val_pids = np.random.choice(train_pids, n_val, replace=False)
+        train_pids = [i for i in train_pids if i not in val_pids]
         
         # to modeling IDs
         self.train_ids = [i for i in self.data['IDs'].keys() if i.split('_')[0] in train_pids]
@@ -489,7 +503,13 @@ class torch_dataloaders():
 class dataloader():
     '''Load data into numpy data types and specify number of folds. If kfold=1 or 0, then single val set returned.
     '''
-    def __init__(self, target_name='GA', kfold=5, prop_trainset=1., include_lux=False, filename='/home/ngrav/data/wearables/processed/MOD1000_modeldata.pkl'):
+    def __init__(self, 
+                 target_name='GA', 
+                 kfold=5, 
+                 prop_trainset=1., 
+                 filter_cohort=True,
+                 include_lux=False, 
+                 filename='/home/ngrav/data/wearables/processed/MOD1000_modeldata.pkl'):
         self.rawdata_file = filename
         self.data = self.load_preproced(filename)
         self.target_name = target_name
@@ -500,7 +520,7 @@ class dataloader():
         self.ids = list(self.data['IDs'].keys())
         
         # split data and get dataloaders
-        self.split_data()
+        self.split_data(filter_cohort=filter_cohort)
         self.Xy_train, self.Xy_test = self.get_Xy(self.target_name)
         
     def load_preproced(self, filename):
@@ -509,8 +529,19 @@ class dataloader():
             f.close()
         return data
     
-    def split_data(self, train_ratio=0.8):
+    def split_data(self, train_ratio=0.8, filter_cohort=True):
         pids = np.unique([i.split('_')[0] for i in self.data['IDs'].keys()])
+        if filter_cohort:
+            print('\nRemoving some pids based on IDs provided:\n  start: n_ids={:d}'.format(len(pids))) 
+            if not os.path.exists('/home/ngrav/data/wearables/processed/List_1260.csv'):
+                print('Cannot find a csv with int list of valid IDs. Skipping filtering step and continuing.')
+                print('  end: n_ids: {:d}'.format(len(pids)))
+                # continue
+            else:
+                cohort = pd.read_csv('/home/ngrav/data/wearables/processed/List_1260.csv')
+                valid_ids = cohort['x'].to_list() # convert to int64?
+                pids = [i for i in pids if int(i.split('_')[0]) in valid_ids]
+                print('  end: n_ids={:d}'.format(len(pids)))
         train_pids = np.random.choice(pids, int(len(pids)*train_ratio*self.prop_trainset), replace=False)
         test_pids = [i for i in pids if i not in train_pids]
         if self.kfold <= 1: # create single val set
