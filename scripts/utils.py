@@ -635,3 +635,11 @@ def get_max_value(df,
         else:
             continue
     return value
+
+
+def print_cont_pval(x, y, n_comparisons=1):
+    print('<x>: {:.2e}\t<y>: {:.2e}\t<x>-<y>: {:.2e}'.format(np.mean(x), np.mean(y), np.mean(x) - np.mean(y)))
+    stat, p = mannwhitneyu(x, y)
+    p = p*n_comparisons
+    print('P: {:.2e}\t{}'.format(p, p_encoder(p)))
+    return stat, p

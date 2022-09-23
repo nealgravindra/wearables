@@ -177,7 +177,7 @@ def tabular_corrnet(md, mdpred_voi):
                         lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
                         lr.fit(X_train, y_train[:, j])
                         balanced_acc.append(
-                            sklmetrics.balanced_accuracy_score(y_test[:, j], lr.predict(X_test), adjusted=True)
+                            sklmetrics.balanced_accuracy_score(y_test[:, j], lr.predict(X_test), adjusted=True) # random score = 0
                         )
                     df.loc[k, kk] = np.max(balanced_acc) # max agg?
                     df.loc[kk, k] = np.max(balanced_acc) # max agg?

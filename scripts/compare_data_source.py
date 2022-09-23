@@ -36,10 +36,14 @@ class knncv():
         # load data
         if self.embeds is not None:
             self.data = self.embeds
+            # filter for cohort or ensure md matches
+            self.data = self.data.loc[self.metadata.index, :]
             self.grps = [s.split('_')[0] for s in self.data.index]
         elif self.trainer is not None:
             # error prone, custom implementation
             self.data = pd.DataFrame({uid: self.trainer.data.data['data'][uid]['activity'][:-1].to_numpy() for uid in self.trainer.data.data['IDs']}).T
+            # filter for cohort or ensure md matches
+            self.data = self.data.loc[self.metadata.index, :]
             self.grps = [s.split('_')[0] for s in self.data.index]
         self.splitter = GroupShuffleSplit(n_splits=5, train_size=0.8, random_state=42)
         # return self.data.to_numpy(dtype=np.float32)
