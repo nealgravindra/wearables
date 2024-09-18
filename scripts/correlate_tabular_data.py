@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import random
 from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import StratifiedKFold
 
 def goodmanKruskalgamma(data, ordinal1, ordinal2):
     # REF: https://colab.research.google.com/drive/1w1t7T67eKLoLzXfoRv4ZG6DsSK4q0UQK#scrollTo=wlWJK2B8DVMN
@@ -359,29 +360,34 @@ def colVall_corr(md, coi, mdpred_voi, groupby=None, verbose=True, sample_groups=
                     except ValueError:
                         y_train = label_binarize(y_train, classes=np.sort(np.unique(y_train)))
                 # SMOTE
-                clf_metric = [] # AU-ROC
+                clf_metric = []  # AU-ROC
                 for jj in range(y_train.shape[1]):
-                    oversample = SMOTE(k_neighbors=3)
-                    # print(f'kk: {kk}\tX_train: {X_train.shape}\ty_train: {y_train.shape}')
+                    skf = StratifiedKFold(n_splits=5)
+                    scores = []
+                    
                     try:
-                        X_train_mod, y_train_mod = oversample.fit_resample(X_train, y_train[:, jj])
-                    except ValueError:
-                        print("\n{}'s {}-th class cannot be computed. Too few n_samples. Skipping".format(kk, jj)) 
+                        for train_index, val_index in skf.split(X_train, y_train[:, jj]):
+                            X_fold_train, X_fold_val = X_train[train_index], X_train[val_index]
+                            y_fold_train, y_fold_val = y_train[train_index, jj], y_train[val_index, jj]
+                            
+                            oversample = SMOTE(k_neighbors=3)
+                            X_fold_train_mod, y_fold_train_mod = oversample.fit_resample(X_fold_train, y_fold_train)
+                            
+                            lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
+                            lr.fit(X_fold_train_mod, y_fold_train_mod)
+                            
+                            y_pred = lr.predict_proba(X_fold_val)[:, 1]
+                            score = roc_auc_score(y_fold_val, y_pred)
+                            scores.append(score)
+                        
+                        clf_metric.append(np.mean(scores))
+                    except ValueError as e:
+                        print(f"\n{kk}'s {jj}-th class cannot be computed. Error: {str(e)}. Skipping")
                         if verbose:
-                            print('{} class frequencies:'.format(kk))
+                            print(f'{kk} class frequencies:')
                             for jj in range(y_train.shape[1]):
                                 print(f"j: {jj}\t0: {(y_train[:, jj]==0).sum()}\t1: {(y_train[:, jj]==1).sum()}")
                         continue
-                    del oversample                
-                
-                    # model/eval
-                    lr = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.1)
-                    scores = cross_val_score(lr, X_train_mod, y_train_mod, cv=5, scoring='roc_auc')
-                    clf_metric.append(np.nanmean(scores))
-                try:
-                    df.loc[kk, i] = np.nanmax(clf_metric) 
-                except ValueError:
-                    print("\n{}:{} association cannot be computed: no model completed".format(k, kk)) 
                     
             else:
                 # cat v. cat
